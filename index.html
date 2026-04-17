@@ -509,7 +509,7 @@
   </ul>
 </div>
 
-<div style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v1.3</div>
+<div style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v1.4</div>
 
 <script>
 // ── State ──────────────────────────────────────────────────
@@ -871,7 +871,8 @@ function snooze(minutes) {
   clearTimeout(reminderTimer);
   cancelSwNotify();
   const ms = minutes * 60 * 1000;
-  reminderTimer = setTimeout(showAlert, ms);
+  snoozedUntil = Date.now() + ms;
+  reminderTimer = setTimeout(() => { snoozedUntil = 0; showAlert(); }, ms);
   scheduleSwNotify(ms);
 }
 
@@ -918,8 +919,10 @@ function togglePause() {
 
 // ── Reminder timer ─────────────────────────────────────────
 let reminderTimer = null;
+let snoozedUntil = 0;   // timestamp: suppress re-alert until this time
 
 function resetReminderTimer() {
+  snoozedUntil = 0;
   clearTimeout(reminderTimer);
   cancelSwNotify();
   if (alertActive) hideAlert();
@@ -1104,7 +1107,7 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     updateElapsed();
     updateScheduleStatus();
-    if (!state.paused && !alertActive && (Date.now() - state.switchedAt) >= currentIntervalMin() * 60 * 1000) {
+    if (!state.paused && !alertActive && Date.now() >= snoozedUntil && (Date.now() - state.switchedAt) >= currentIntervalMin() * 60 * 1000) {
       showAlert();
     }
   }

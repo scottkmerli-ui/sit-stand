@@ -1,6 +1,6 @@
 // ── Service Worker for Sit/Stand Tracker PWA ──
 
-const CACHE_NAME = 'sitstand-v5';
+const CACHE_NAME = 'sitstand-v6';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.svg', './icon-512.svg'];
 
 // Install — cache app shell
