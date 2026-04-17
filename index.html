@@ -17,6 +17,7 @@
     --card: #16213e;
     --text: #eee;
     --muted: #888;
+    --paused-color: #7f8c8d;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -33,7 +34,6 @@
   }
   h1 { font-size: 1.6rem; margin-bottom: 1.5rem; letter-spacing: 0.05em; }
 
-  /* Status card */
   .status-card {
     background: var(--card);
     border-radius: 16px;
@@ -42,11 +42,12 @@
     width: 100%;
     max-width: 460px;
     box-shadow: 0 8px 32px rgba(0,0,0,.3);
-    transition: border-color .3s;
+    transition: border-color .3s, opacity .3s;
     border: 2px solid transparent;
   }
   .status-card.sitting  { border-color: var(--sit-color); }
   .status-card.standing { border-color: var(--stand-color); }
+  .status-card.paused   { border-color: var(--paused-color); opacity: 0.6; }
 
   .state-icon { font-size: 4rem; margin-bottom: 0.5rem; }
   .state-label {
@@ -57,18 +58,45 @@
   }
   .sitting  .state-label { color: var(--sit-color); }
   .standing .state-label { color: var(--stand-color); }
+  .paused   .state-label { color: var(--paused-color); }
 
   .elapsed {
     font-size: 2.4rem;
     font-variant-numeric: tabular-nums;
-    margin: 0.8rem 0;
+    margin: 0.8rem 0 0.3rem;
     font-weight: 300;
   }
   .elapsed.overdue { color: #f39c12; }
 
+  /* Progress bar */
+  .progress-wrap {
+    width: 100%;
+    max-width: 280px;
+    height: 6px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    margin: 0 auto 0.8rem;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s linear, background-color 0.5s;
+    width: 0%;
+  }
+  .sitting  .progress-bar { background: var(--sit-color); }
+  .standing .progress-bar { background: var(--stand-color); }
+  .progress-bar.overdue { background: #f39c12; }
+
+  .btn-row {
+    display: flex;
+    gap: 0.6rem;
+    justify-content: center;
+    margin-top: 0.8rem;
+  }
+
   .switch-btn {
-    margin-top: 1rem;
-    padding: 0.8rem 2.5rem;
+    padding: 0.8rem 2rem;
     font-size: 1.1rem;
     font-weight: 600;
     border: none;
@@ -81,6 +109,20 @@
   .switch-btn:active { transform: scale(0.97); }
   .sitting  .switch-btn { background: var(--stand-color); box-shadow: 0 4px 16px rgba(46,204,113,.3); }
   .standing .switch-btn { background: var(--sit-color);   box-shadow: 0 4px 16px rgba(231,76,60,.3); }
+
+  .pause-btn {
+    padding: 0.8rem 1.2rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    border: 2px solid #555;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--muted);
+    background: transparent;
+    transition: border-color .15s, color .15s, transform .1s;
+  }
+  .pause-btn:hover { border-color: #aaa; color: var(--text); transform: scale(1.04); }
+  .pause-btn.is-paused { border-color: var(--stand-color); color: var(--stand-color); }
 
   /* Settings */
   .settings {
@@ -107,6 +149,68 @@
   }
   .settings label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
   .settings input[type=checkbox] { accent-color: var(--stand-color); }
+
+  /* Schedule section */
+  .schedule-section {
+    margin-top: 1.2rem;
+    width: 100%;
+    max-width: 460px;
+  }
+  .schedule-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--card);
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .schedule-toggle:hover { background: #1a2744; }
+  .schedule-body {
+    background: var(--card);
+    border-radius: 0 0 10px 10px;
+    padding: 0.8rem 1rem;
+    margin-top: -4px;
+  }
+  .schedule-hours {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 0.8rem;
+    justify-content: center;
+  }
+  .schedule-hours input[type=time] {
+    background: var(--bg);
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: var(--text);
+    padding: 0.25rem 0.4rem;
+    font-size: 0.85rem;
+  }
+  .week-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-bottom: 0.5rem;
+  }
+  .day-cell {
+    text-align: center;
+    padding: 0.4rem 0;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    border: 1px solid #333;
+    transition: background .15s, border-color .15s;
+    user-select: none;
+  }
+  .day-cell.active { background: var(--stand-color); border-color: var(--stand-color); color: #fff; font-weight: 600; }
+  .day-cell.today  { border-color: #f39c12; }
+  .day-cell .day-name { display: block; font-weight: 600; }
+  .day-cell .day-date { display: block; font-size: 0.65rem; color: var(--muted); margin-top: 1px; }
+  .day-cell.active .day-date { color: rgba(255,255,255,0.8); }
 
   /* ── FULL-SCREEN ALERT OVERLAY ── */
   .alert-overlay {
@@ -174,6 +278,18 @@
   }
   .snooze-btn:hover { background: rgba(255,255,255,0.25); }
   .snooze-label { color: rgba(255,255,255,0.7); font-size: 0.85rem; margin-top: 0.6rem; }
+  .dismiss-btn {
+    margin-top: 0.6rem;
+    padding: 0.4rem 1.2rem;
+    font-size: 0.85rem;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    color: rgba(255,255,255,0.6);
+    background: transparent;
+    transition: color .15s;
+  }
+  .dismiss-btn:hover { color: #fff; }
   .test-btn {
     margin-left: auto;
     padding: 0.25rem 0.7rem;
@@ -190,7 +306,7 @@
 
   /* Log */
   .log-section {
-    margin-top: 2rem;
+    margin-top: 1.5rem;
     width: 100%;
     max-width: 460px;
   }
@@ -211,7 +327,6 @@
     font-size: 0.75rem;
   }
   .log-header button:hover { color: var(--text); border-color: #888; }
-
   .log-list {
     list-style: none;
     max-height: 300px;
@@ -230,38 +345,14 @@
   }
   .log-list li:last-child { border-bottom: none; }
   .log-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .log-dot.sit  { background: var(--sit-color); }
+  .log-dot.sit   { background: var(--sit-color); }
   .log-dot.stand { background: var(--stand-color); }
+  .log-dot.pause { background: var(--paused-color); }
   .log-time { color: var(--muted); min-width: 5.5rem; }
   .log-dur  { color: var(--muted); margin-left: auto; font-size: 0.8rem; }
 
-  /* Notification permission banner */
-  .notif-banner {
-    background: #2c3e50;
-    border-radius: 8px;
-    padding: 0.8rem 1.2rem;
-    margin-bottom: 1rem;
-    width: 100%;
-    max-width: 460px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 0.85rem;
-    gap: 0.5rem;
-  }
-  .notif-banner button {
-    background: var(--stand-color);
-    border: none;
-    color: #fff;
-    padding: 0.4rem 1rem;
-    border-radius: 6px;
-    cursor: pointer;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-  /* Install banner */
-  .install-banner {
+  /* Banners */
+  .notif-banner, .install-banner {
     background: #2c3e50;
     border-radius: 8px;
     padding: 0.8rem 1.2rem;
@@ -274,8 +365,7 @@
     font-size: 0.85rem;
     gap: 0.5rem;
   }
-  .install-banner button {
-    background: #3498db;
+  .notif-banner button, .install-banner button {
     border: none;
     color: #fff;
     padding: 0.4rem 1rem;
@@ -284,8 +374,9 @@
     font-weight: 600;
     white-space: nowrap;
   }
+  .notif-banner button { background: var(--stand-color); }
+  .install-banner button { background: #3498db; }
 
-  /* Daily summary */
   .summary {
     margin-top: 1rem;
     width: 100%;
@@ -336,6 +427,7 @@
       <button class="snooze-btn" onclick="snooze(20)">20m</button>
       <button class="snooze-btn" onclick="snooze(30)">30m</button>
     </div>
+    <button class="dismiss-btn" onclick="dismissAlert()">✕ Dismiss</button>
   </div>
 </div>
 
@@ -343,7 +435,11 @@
   <div class="state-icon" id="icon">🪑</div>
   <div class="state-label" id="label">Sitting</div>
   <div class="elapsed" id="elapsed">00:00</div>
-  <button class="switch-btn" id="switchBtn" onclick="toggleState()">Switch to Standing</button>
+  <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+  <div class="btn-row">
+    <button class="switch-btn" id="switchBtn" onclick="toggleState()">Switch to Standing</button>
+    <button class="pause-btn" id="pauseBtn" onclick="togglePause()">⏸️</button>
+  </div>
 
   <div class="settings">
     <div class="settings-row">
@@ -363,6 +459,32 @@
       </label>
       <button class="test-btn" onclick="showAlert()">🔔 Test Alert</button>
     </div>
+  </div>
+</div>
+
+<!-- Schedule -->
+<div class="schedule-section">
+  <div class="schedule-toggle" onclick="toggleSchedulePanel()">
+    <span>📅 Schedule</span>
+    <span id="schedStatusText">Always on</span>
+  </div>
+  <div id="schedBody" class="schedule-body hidden">
+    <div class="settings-row" style="margin-bottom:0.6rem">
+      <label>
+        <input type="checkbox" id="schedEnabled" onchange="saveSchedule()">
+        Enable schedule
+      </label>
+    </div>
+    <div class="schedule-hours">
+      <span>Work hours:</span>
+      <input type="time" id="schedStart" value="08:00" onchange="saveSchedule()">
+      <span>to</span>
+      <input type="time" id="schedEnd" value="17:00" onchange="saveSchedule()">
+    </div>
+    <div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem;text-align:center">
+      Tap days to enable/disable for next 7 days
+    </div>
+    <div class="week-grid" id="weekGrid"></div>
   </div>
 </div>
 
@@ -387,22 +509,31 @@
   </ul>
 </div>
 
-<div style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v1.1</div>
+<div style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v1.3</div>
 
 <script>
 // ── State ──────────────────────────────────────────────────
-const LS_KEY = 'sitstand_v2';
+const LS_KEY = 'sitstand_v3';
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 let state = {
   mode: 'sitting',
   switchedAt: Date.now(),
+  paused: false,
+  pausedAt: null,
   sitMin: 30,
   standMin: 20,
   sound: true,
   log: [],
   todaySitMs: 0,
   todayStandMs: 0,
-  today: new Date().toDateString()
+  today: new Date().toDateString(),
+  // Schedule
+  schedEnabled: false,
+  schedStart: '08:00',
+  schedEnd: '17:00',
+  schedDays: [false, true, true, true, true, true, false], // Sun=off, M-F=on, Sat=off
+  schedOverrides: {} // { 'YYYY-MM-DD': true/false } for next 7 days
 };
 
 function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
@@ -421,6 +552,14 @@ function load() {
       s.log = [];
       s.today = new Date().toDateString();
     }
+    // Clean old overrides (past dates)
+    if (s.schedOverrides) {
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      for (const key of Object.keys(s.schedOverrides)) {
+        if (new Date(key) < today) delete s.schedOverrides[key];
+      }
+    }
     Object.assign(state, s);
   } catch (e) { /* corrupted, use defaults */ }
 }
@@ -431,6 +570,8 @@ const icon         = document.getElementById('icon');
 const label        = document.getElementById('label');
 const elapsed      = document.getElementById('elapsed');
 const switchBtn    = document.getElementById('switchBtn');
+const pauseBtn     = document.getElementById('pauseBtn');
+const progressBar  = document.getElementById('progressBar');
 const logList      = document.getElementById('logList');
 const sitMinIn     = document.getElementById('sitMin');
 const standMinIn   = document.getElementById('standMin');
@@ -444,9 +585,96 @@ const alertTitle   = document.getElementById('alertTitle');
 const alertSub     = document.getElementById('alertSub');
 const alertSwitchBtn = document.getElementById('alertSwitchBtn');
 const installBanner = document.getElementById('installBanner');
+const schedBody    = document.getElementById('schedBody');
+const weekGrid     = document.getElementById('weekGrid');
+const schedStatusText = document.getElementById('schedStatusText');
 
 function currentIntervalMin() {
   return state.mode === 'sitting' ? state.sitMin : state.standMin;
+}
+
+// ── Schedule logic ─────────────────────────────────────────
+function isDateKey(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function isDayActive(date) {
+  const key = isDateKey(date);
+  if (state.schedOverrides && state.schedOverrides[key] !== undefined) {
+    return state.schedOverrides[key];
+  }
+  return state.schedDays[date.getDay()];
+}
+
+function isWithinSchedule() {
+  if (!state.schedEnabled) return true;
+  const now = new Date();
+  if (!isDayActive(now)) return false;
+  const [sh, sm] = state.schedStart.split(':').map(Number);
+  const [eh, em] = state.schedEnd.split(':').map(Number);
+  const mins = now.getHours() * 60 + now.getMinutes();
+  return mins >= (sh * 60 + sm) && mins < (eh * 60 + em);
+}
+
+function renderWeekGrid() {
+  weekGrid.innerHTML = '';
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const active = isDayActive(d);
+    const isToday = i === 0;
+    const cell = document.createElement('div');
+    cell.className = 'day-cell' + (active ? ' active' : '') + (isToday ? ' today' : '');
+    cell.innerHTML = `<span class="day-name">${DAY_NAMES[d.getDay()]}</span><span class="day-date">${d.getMonth()+1}/${d.getDate()}</span>`;
+    cell.onclick = () => {
+      const key = isDateKey(d);
+      const wasActive = isDayActive(d);
+      state.schedOverrides[key] = !wasActive;
+      save();
+      renderWeekGrid();
+      updateScheduleStatus();
+      checkScheduleState();
+    };
+    weekGrid.appendChild(cell);
+  }
+}
+
+function toggleSchedulePanel() {
+  schedBody.classList.toggle('hidden');
+}
+
+function saveSchedule() {
+  state.schedEnabled = document.getElementById('schedEnabled').checked;
+  state.schedStart = document.getElementById('schedStart').value;
+  state.schedEnd = document.getElementById('schedEnd').value;
+  save();
+  updateScheduleStatus();
+  checkScheduleState();
+}
+
+function updateScheduleStatus() {
+  if (!state.schedEnabled) {
+    schedStatusText.textContent = 'Always on';
+  } else if (isWithinSchedule()) {
+    schedStatusText.textContent = '🟢 Active now';
+  } else {
+    schedStatusText.textContent = '⏸️ Outside hours';
+  }
+}
+
+let wasInSchedule = true;
+function checkScheduleState() {
+  const inSchedule = isWithinSchedule();
+  if (inSchedule && !wasInSchedule && state.paused) {
+    // Auto-resume when schedule starts
+    togglePause();
+  } else if (!inSchedule && wasInSchedule && !state.paused) {
+    // Auto-pause when schedule ends
+    togglePause();
+  }
+  wasInSchedule = inSchedule;
 }
 
 // ── Service Worker registration ────────────────────────────
@@ -457,15 +685,14 @@ if ('serviceWorker' in navigator) {
     return reg;
   }).catch(err => console.warn('SW registration failed:', err));
 
-  // Listen for messages from the service worker
   navigator.serviceWorker.addEventListener('message', e => {
     if (e.data.type === 'SHOW_ALERT') showAlert();
     if (e.data.type === 'DO_SWITCH') { hideAlert(); toggleState(); }
     if (e.data.type === 'DO_SNOOZE') { hideAlert(); snooze(e.data.minutes); }
+    if (e.data.type === 'DO_PAUSE')  { hideAlert(); if (!state.paused) togglePause(); }
   });
 }
 
-// Schedule a notification via the service worker (more reliable on mobile)
 function scheduleSwNotify(delayMs) {
   if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
   const sitting = state.mode === 'sitting';
@@ -486,25 +713,20 @@ function cancelSwNotify() {
 
 // ── PWA Install prompt ─────────────────────────────────────
 let deferredInstallPrompt = null;
-
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredInstallPrompt = e;
   installBanner.classList.remove('hidden');
 });
-
 function installPWA() {
   if (!deferredInstallPrompt) return;
   deferredInstallPrompt.prompt();
-  deferredInstallPrompt.userChoice.then(result => {
+  deferredInstallPrompt.userChoice.then(() => {
     deferredInstallPrompt = null;
     installBanner.classList.add('hidden');
   });
 }
-
-window.addEventListener('appinstalled', () => {
-  installBanner.classList.add('hidden');
-});
+window.addEventListener('appinstalled', () => installBanner.classList.add('hidden'));
 
 // ── Notifications ──────────────────────────────────────────
 function checkNotifPermission() {
@@ -527,7 +749,7 @@ function requestNotifPermission() {
   Notification.requestPermission().then(() => checkNotifPermission());
 }
 
-// ── Alarm sound — persistent, repeating ────────────────────
+// ── Alarm sound ────────────────────────────────────────────
 let alarmCtx = null;
 let alarmNodes = [];
 let alarmInterval = null;
@@ -538,7 +760,6 @@ function startAlarm() {
   playAlarmTone();
   alarmInterval = setInterval(playAlarmTone, 4000);
 }
-
 function playAlarmTone() {
   try {
     if (!alarmCtx) alarmCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -559,7 +780,6 @@ function playAlarmTone() {
     });
   } catch (e) { /* no audio */ }
 }
-
 function stopAlarm() {
   clearInterval(alarmInterval);
   alarmInterval = null;
@@ -570,7 +790,6 @@ function stopAlarm() {
 // ── Title flash ────────────────────────────────────────────
 let titleInterval = null;
 const ORIGINAL_TITLE = 'Sit / Stand Tracker';
-
 function startTitleFlash(msg) {
   stopTitleFlash();
   let on = true;
@@ -589,6 +808,7 @@ function stopTitleFlash() {
 let alertActive = false;
 
 function showAlert() {
+  if (state.paused) return;
   alertActive = true;
   const sitting = state.mode === 'sitting';
   const mins = currentIntervalMin();
@@ -602,9 +822,7 @@ function showAlert() {
   startAlarm();
   startTitleFlash(sitting ? 'STAND UP!' : 'SIT DOWN!');
 
-  // Fire a browser notification in case tab/app is in background
   if (Notification.permission === 'granted') {
-    // Prefer service worker notifications (they support actions and persist better)
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.ready.then(reg => {
         reg.showNotification(sitting ? '⏰ Time to stand!' : '⏰ Time to sit!', {
@@ -617,7 +835,7 @@ function showAlert() {
           actions: [
             { action: 'switch', title: sitting ? '🧍 Switch' : '🪑 Switch' },
             { action: 'snooze5', title: '⏰ 5m' },
-            { action: 'snooze15', title: '⏰ 15m' }
+            { action: 'pause', title: '⏸️ Pause' }
           ]
         });
       });
@@ -637,6 +855,12 @@ function hideAlert() {
   stopTitleFlash();
 }
 
+function dismissAlert() {
+  hideAlert();
+  // Re-arm the timer from now so it fires again after the full interval
+  resetReminderTimer();
+}
+
 function alertSwitch() {
   hideAlert();
   toggleState();
@@ -651,6 +875,47 @@ function snooze(minutes) {
   scheduleSwNotify(ms);
 }
 
+// ── Pause / Resume ─────────────────────────────────────────
+function togglePause() {
+  const now = Date.now();
+  if (!state.paused) {
+    // Pausing
+    state.paused = true;
+    state.pausedAt = now;
+    // Close current log entry
+    if (state.log.length && !state.log[state.log.length - 1].end) {
+      state.log[state.log.length - 1].end = now;
+    }
+    // Accumulate time
+    const durMs = now - state.switchedAt;
+    if (state.mode === 'sitting') state.todaySitMs += durMs;
+    else state.todayStandMs += durMs;
+    // Log the pause
+    state.log.push({ mode: 'paused', start: now });
+    // Cancel timers
+    clearTimeout(reminderTimer);
+    cancelSwNotify();
+    if (alertActive) hideAlert();
+  } else {
+    // Resuming
+    state.paused = false;
+    const now2 = Date.now();
+    // Close pause log entry
+    if (state.log.length && !state.log[state.log.length - 1].end) {
+      state.log[state.log.length - 1].end = now2;
+    }
+    // Reset switch time to now (fresh start)
+    state.switchedAt = now2;
+    state.pausedAt = null;
+    // Open new log entry for current mode
+    state.log.push({ mode: state.mode, start: now2 });
+    // Restart timer
+    resetReminderTimer();
+  }
+  save();
+  render();
+}
+
 // ── Reminder timer ─────────────────────────────────────────
 let reminderTimer = null;
 
@@ -658,6 +923,7 @@ function resetReminderTimer() {
   clearTimeout(reminderTimer);
   cancelSwNotify();
   if (alertActive) hideAlert();
+  if (state.paused) return;
   const ms = currentIntervalMin() * 60 * 1000;
   reminderTimer = setTimeout(showAlert, ms);
   scheduleSwNotify(ms);
@@ -665,6 +931,7 @@ function resetReminderTimer() {
 
 // ── Core logic ─────────────────────────────────────────────
 function toggleState() {
+  if (state.paused) return;
   const now = Date.now();
   const durMs = now - state.switchedAt;
 
@@ -672,11 +939,8 @@ function toggleState() {
     state.log[state.log.length - 1].end = now;
   }
 
-  if (state.mode === 'sitting') {
-    state.todaySitMs += durMs;
-  } else {
-    state.todayStandMs += durMs;
-  }
+  if (state.mode === 'sitting') state.todaySitMs += durMs;
+  else state.todayStandMs += durMs;
 
   state.mode = state.mode === 'sitting' ? 'standing' : 'sitting';
   state.switchedAt = now;
@@ -696,11 +960,9 @@ function formatDuration(ms) {
   if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
   return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
-
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
-
 function formatHM(ms) {
   const m = Math.floor(ms / 60000);
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2,'0')}`;
@@ -709,22 +971,65 @@ function formatHM(ms) {
 // ── Render ─────────────────────────────────────────────────
 function render() {
   const sitting = state.mode === 'sitting';
-  card.className = 'status-card ' + state.mode;
-  icon.textContent  = sitting ? '🪑' : '🧍';
-  label.textContent = sitting ? 'Sitting' : 'Standing';
-  switchBtn.textContent = sitting ? 'Switch to Standing' : 'Switch to Sitting';
-  sitMinIn.value  = state.sitMin;
+
+  if (state.paused) {
+    card.className = 'status-card paused';
+    icon.textContent  = '⏸️';
+    label.textContent = 'Paused';
+    switchBtn.disabled = true;
+    switchBtn.style.opacity = '0.4';
+    pauseBtn.textContent = '▶️';
+    pauseBtn.classList.add('is-paused');
+    progressBar.style.width = '0%';
+  } else {
+    card.className = 'status-card ' + state.mode;
+    icon.textContent  = sitting ? '🪑' : '🧍';
+    label.textContent = sitting ? 'Sitting' : 'Standing';
+    switchBtn.textContent = sitting ? 'Switch to Standing' : 'Switch to Sitting';
+    switchBtn.disabled = false;
+    switchBtn.style.opacity = '1';
+    pauseBtn.textContent = '⏸️';
+    pauseBtn.classList.remove('is-paused');
+  }
+
+  sitMinIn.value   = state.sitMin;
   standMinIn.value = state.standMin;
   soundTgl.checked = state.sound;
+
+  // Schedule UI
+  document.getElementById('schedEnabled').checked = state.schedEnabled;
+  document.getElementById('schedStart').value = state.schedStart;
+  document.getElementById('schedEnd').value = state.schedEnd;
+  updateScheduleStatus();
+  renderWeekGrid();
+
   renderLog();
   updateElapsed();
 }
 
 function updateElapsed() {
+  if (state.paused) {
+    const ms = state.pausedAt - state.switchedAt;
+    elapsed.textContent = formatDuration(ms < 0 ? 0 : ms);
+    elapsed.classList.remove('overdue');
+    progressBar.style.width = '0%';
+    progressBar.classList.remove('overdue');
+    // Still show totals
+    totalSitEl.textContent   = formatHM(state.todaySitMs);
+    totalStandEl.textContent = formatHM(state.todayStandMs);
+    return;
+  }
+
   const ms = Date.now() - state.switchedAt;
   elapsed.textContent = formatDuration(ms);
   const thresholdMs = currentIntervalMin() * 60 * 1000;
-  elapsed.classList.toggle('overdue', ms >= thresholdMs);
+  const overdue = ms >= thresholdMs;
+  elapsed.classList.toggle('overdue', overdue);
+
+  // Progress bar
+  const pct = Math.min((ms / thresholdMs) * 100, 100);
+  progressBar.style.width = pct + '%';
+  progressBar.classList.toggle('overdue', overdue);
 
   const liveSit   = state.todaySitMs   + (state.mode === 'sitting'  ? ms : 0);
   const liveStand = state.todayStandMs + (state.mode === 'standing' ? ms : 0);
@@ -738,12 +1043,13 @@ function renderLog() {
     return;
   }
   logList.innerHTML = state.log.slice().reverse().map(e => {
-    const dotClass = e.mode === 'sitting' ? 'sit' : 'stand';
+    const dotClass = e.mode === 'sitting' ? 'sit' : e.mode === 'standing' ? 'stand' : 'pause';
+    const lbl = e.mode === 'sitting' ? 'Sitting' : e.mode === 'standing' ? 'Standing' : 'Paused';
     const dur = e.end ? formatDuration(e.end - e.start) : 'ongoing';
     return `<li>
       <span class="log-dot ${dotClass}"></span>
       <span class="log-time">${formatTime(e.start)}</span>
-      <span>${e.mode === 'sitting' ? 'Sitting' : 'Standing'}</span>
+      <span>${lbl}</span>
       <span class="log-dur">${dur}</span>
     </li>`;
   }).join('');
@@ -754,7 +1060,7 @@ function saveSettings() {
   state.standMin = Math.max(1, Math.min(120, parseInt(standMinIn.value) || 20));
   state.sound = soundTgl.checked;
   save();
-  resetReminderTimer();
+  if (!state.paused) resetReminderTimer();
 }
 
 function clearLog() {
@@ -762,7 +1068,7 @@ function clearLog() {
   state.todaySitMs = 0;
   state.todayStandMs = 0;
   state.switchedAt = Date.now();
-  state.log.push({ mode: state.mode, start: state.switchedAt });
+  state.log.push({ mode: state.paused ? 'paused' : state.mode, start: state.switchedAt });
   save();
   render();
 }
@@ -770,29 +1076,35 @@ function clearLog() {
 // ── Init ───────────────────────────────────────────────────
 load();
 if (!state.log.length || state.log[state.log.length - 1].end) {
-  state.log.push({ mode: state.mode, start: state.switchedAt });
+  state.log.push({ mode: state.paused ? 'paused' : state.mode, start: state.switchedAt });
   save();
 }
 
 render();
 checkNotifPermission();
+wasInSchedule = isWithinSchedule();
 
-const restoredElapsed = Date.now() - state.switchedAt;
-if (restoredElapsed >= currentIntervalMin() * 60 * 1000) {
-  showAlert();
-} else {
-  const remaining = (currentIntervalMin() * 60 * 1000) - restoredElapsed;
-  reminderTimer = setTimeout(showAlert, remaining);
-  scheduleSwNotify(remaining);
+if (!state.paused) {
+  const restoredElapsed = Date.now() - state.switchedAt;
+  if (restoredElapsed >= currentIntervalMin() * 60 * 1000) {
+    showAlert();
+  } else {
+    const remaining = (currentIntervalMin() * 60 * 1000) - restoredElapsed;
+    reminderTimer = setTimeout(showAlert, remaining);
+    scheduleSwNotify(remaining);
+  }
 }
 
 setInterval(updateElapsed, 1000);
 setInterval(save, 15000);
+// Check schedule every minute
+setInterval(() => { updateScheduleStatus(); checkScheduleState(); }, 60000);
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     updateElapsed();
-    if (!alertActive && (Date.now() - state.switchedAt) >= currentIntervalMin() * 60 * 1000) {
+    updateScheduleStatus();
+    if (!state.paused && !alertActive && (Date.now() - state.switchedAt) >= currentIntervalMin() * 60 * 1000) {
       showAlert();
     }
   }
