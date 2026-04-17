@@ -1,7 +1,7 @@
 // ── Service Worker for Sit/Stand Tracker PWA ──
 
-const CACHE_NAME = 'sitstand-v2';
-const ASSETS = ['/', '/index.html', '/manifest.json', '/icon-192.svg', '/icon-512.svg'];
+const CACHE_NAME = 'sitstand-v3';
+const ASSETS = ['./', './index.html', './manifest.json', './icon-192.svg', './icon-512.svg'];
 
 // Install — cache app shell
 self.addEventListener('install', e => {
@@ -40,8 +40,8 @@ self.addEventListener('message', e => {
     notifyTimer = setTimeout(() => {
       self.registration.showNotification(data.title, {
         body: data.body,
-        icon: '/icon-192.svg',
-        badge: '/icon-192.svg',
+        icon: './icon-192.svg',
+        badge: './icon-192.svg',
         tag: 'sitstand-reminder',
         requireInteraction: true,
         vibrate: [200, 100, 200, 100, 200],
@@ -85,7 +85,7 @@ self.addEventListener('notificationclick', e => {
           client.postMessage({ type: 'SHOW_ALERT' });
         }
       } else {
-        self.clients.openWindow('/').then(win => {
+        self.clients.openWindow('./').then(win => {
           // New window will pick up state from localStorage
         });
       }

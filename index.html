@@ -450,7 +450,7 @@ function currentIntervalMin() {
 // ── Service Worker registration ────────────────────────────
 let swReady = null;
 if ('serviceWorker' in navigator) {
-  swReady = navigator.serviceWorker.register('/sw.js').then(reg => {
+  swReady = navigator.serviceWorker.register('./sw.js').then(reg => {
     console.log('SW registered', reg.scope);
     return reg;
   }).catch(err => console.warn('SW registration failed:', err));
@@ -607,8 +607,8 @@ function showAlert() {
       navigator.serviceWorker.ready.then(reg => {
         reg.showNotification(sitting ? '⏰ Time to stand!' : '⏰ Time to sit!', {
           body: `You've been ${sitting ? 'sitting' : 'standing'} for ${mins}+ min`,
-          icon: '/icon-192.svg',
-          badge: '/icon-192.svg',
+          icon: './icon-192.svg',
+          badge: './icon-192.svg',
           tag: 'sitstand-reminder',
           requireInteraction: true,
           vibrate: [200, 100, 200, 100, 200],
