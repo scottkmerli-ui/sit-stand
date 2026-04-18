@@ -2,6 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<script>
+// Must run BEFORE any other content — replaces entire document with stored update
+(function() {
+  var pending = localStorage.getItem('sitstand_pending_update');
+  if (pending) {
+    localStorage.removeItem('sitstand_pending_update');
+    localStorage.setItem('sitstand_just_updated', 'true');
+    document.open();
+    document.write(pending);
+    document.close();
+  }
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sit / Stand Tracker</title>
 <link rel="manifest" href="manifest.json">
@@ -565,7 +578,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '2.8';    // Web layer version (auto-updatable)
+const APP_VERSION = '2.9';    // Web layer version (auto-updatable)
 const APK_VERSION = '2.7';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
@@ -630,18 +643,8 @@ window.applyUpdate = function() {
   }
 };
 
-// On load: check if there's a pending update to apply
+// On load: show toast if we just applied an update
 (function() {
-  const pending = localStorage.getItem('sitstand_pending_update');
-  if (pending) {
-    localStorage.removeItem('sitstand_pending_update');
-    localStorage.setItem('sitstand_just_updated', 'true');
-    document.open();
-    document.write(pending);
-    document.close();
-    return;
-  }
-  // Show toast if we just applied an update
   if (localStorage.getItem('sitstand_just_updated')) {
     localStorage.removeItem('sitstand_just_updated');
     setTimeout(function() {
