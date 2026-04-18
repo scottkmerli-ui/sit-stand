@@ -3,16 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <script>
-// Auto-update bootstrap — halt parsing and replace document entirely
+// Auto-update bootstrap — replaces entire document with stored update
+// document.open() during parsing implicitly replaces the current document
 (function() {
   var pending = localStorage.getItem('sitstand_pending_update');
   if (pending) {
     localStorage.removeItem('sitstand_pending_update');
     localStorage.setItem('sitstand_just_updated', 'true');
-    window.stop(); // Stop parsing the rest of THIS document
     document.open();
     document.write(pending);
     document.close();
+    // Prevent rest of this document from rendering
+    throw new Error('UPDATE_APPLIED');
   }
 })();
 </script>
@@ -579,7 +581,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '2.14';    // Web layer version (auto-updatable)
+const APP_VERSION = '2.15';    // Web layer version (auto-updatable)
 const APK_VERSION = '2.7';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
