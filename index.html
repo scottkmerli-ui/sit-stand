@@ -3,42 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <script>
-// Auto-update bootstrap — must run BEFORE any other content
+// Auto-update bootstrap — halt parsing and replace document entirely
 (function() {
   var pending = localStorage.getItem('sitstand_pending_update');
   if (pending) {
     localStorage.removeItem('sitstand_pending_update');
     localStorage.setItem('sitstand_just_updated', 'true');
-    // Hide everything immediately so user doesn't see old content
-    document.documentElement.style.display = 'none';
-    // Wait for parser to finish, then replace the entire document
-    window.addEventListener('DOMContentLoaded', function() {
-      // Parse the new HTML
-      var parser = new DOMParser();
-      var newDoc = parser.parseFromString(pending, 'text/html');
-      // Replace head and body
-      document.head.innerHTML = newDoc.head.innerHTML;
-      document.body.innerHTML = newDoc.body.innerHTML;
-      // Copy body attributes
-      Array.from(newDoc.body.attributes).forEach(function(attr) {
-        document.body.setAttribute(attr.name, attr.value);
-      });
-      // Re-execute all scripts (DOMParser doesn't execute them)
-      var scripts = document.querySelectorAll('script');
-      var pending_scripts = [];
-      scripts.forEach(function(old) {
-        var s = document.createElement('script');
-        if (old.src) { s.src = old.src; }
-        else { s.textContent = old.textContent; }
-        if (old.type) s.type = old.type;
-        pending_scripts.push({ old: old, replacement: s });
-      });
-      pending_scripts.forEach(function(p) {
-        p.old.parentNode.replaceChild(p.replacement, p.old);
-      });
-      // Show the page
-      document.documentElement.style.display = '';
-    });
+    window.stop(); // Stop parsing the rest of THIS document
+    document.open();
+    document.write(pending);
+    document.close();
   }
 })();
 </script>
@@ -605,7 +579,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '2.12';    // Web layer version (auto-updatable)
+const APP_VERSION = '2.13';    // Web layer version (auto-updatable)
 const APK_VERSION = '2.7';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
