@@ -77,6 +77,7 @@
     border-radius: 3px;
     margin: 0 auto 0.8rem;
     overflow: hidden;
+    position: relative;
   }
   .progress-bar {
     height: 100%;
@@ -86,7 +87,29 @@
   }
   .sitting  .progress-bar { background: var(--sit-color); }
   .standing .progress-bar { background: var(--stand-color); }
-  .progress-bar.overdue { background: #f39c12; }
+  .progress-bar.overdue { background: #e74c3c; animation: pulse-bar 1.5s ease-in-out infinite; }
+  @keyframes pulse-bar { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .progress-marker {
+    position: absolute;
+    top: -2px;
+    width: 2px;
+    height: 10px;
+    background: #e74c3c;
+    border-radius: 1px;
+    display: none;
+    z-index: 1;
+  }
+
+  .snooze-indicator {
+    text-align: center;
+    font-size: 1rem;
+    color: #f39c12;
+    padding: 0.5rem 0.8rem;
+    margin-top: 0.4rem;
+    background: rgba(243, 156, 18, 0.15);
+    border-radius: 8px;
+    border: 1px solid rgba(243, 156, 18, 0.3);
+  }
 
   .btn-row {
     display: flex;
@@ -412,6 +435,12 @@
   <button id="notifBtn" onclick="requestNotifPermission()">Enable</button>
 </div>
 
+<div id="permBanner" class="notif-banner hidden" style="background:#e67e22">
+  <span id="permMsg">⚠️ Permissions needed</span>
+  <button id="permBtn" onclick="fixPermissions()">Fix</button>
+  <button onclick="dismissPermBanner()" style="margin-left:0.3rem;padding:0.2rem 0.5rem;background:transparent;border:1px solid rgba(255,255,255,0.5);color:white;border-radius:4px;cursor:pointer;font-size:0.75rem">✕</button>
+</div>
+
 <!-- ── Full-screen alert overlay ── -->
 <div id="alertOverlay" class="alert-overlay sit-alert hidden">
   <div class="alert-icon" id="alertIcon">🧍</div>
@@ -421,12 +450,15 @@
     <button class="alert-switch-btn" id="alertSwitchBtn" onclick="alertSwitch()">🧍 I'm Standing Now</button>
     <div class="snooze-label">⏰ Or snooze…</div>
     <div class="snooze-row">
+      <button class="snooze-btn" onclick="snoozeSeconds(10)">10s</button>
+      <button class="snooze-btn" onclick="snoozeSeconds(30)">30s</button>
       <button class="snooze-btn" onclick="snooze(5)">5m</button>
       <button class="snooze-btn" onclick="snooze(10)">10m</button>
       <button class="snooze-btn" onclick="snooze(15)">15m</button>
       <button class="snooze-btn" onclick="snooze(20)">20m</button>
       <button class="snooze-btn" onclick="snooze(30)">30m</button>
     </div>
+    <button class="dismiss-btn" onclick="if (!state.paused) togglePause(); hideAlert();">⏸️ Pause Timer</button>
     <button class="dismiss-btn" onclick="dismissAlert()">✕ Dismiss</button>
   </div>
 </div>
@@ -435,7 +467,11 @@
   <div class="state-icon" id="icon">🪑</div>
   <div class="state-label" id="label">Sitting</div>
   <div class="elapsed" id="elapsed">00:00</div>
-  <div class="progress-wrap"><div class="progress-bar" id="progressBar"></div></div>
+  <div class="progress-wrap">
+    <div class="progress-bar" id="progressBar"></div>
+    <div class="progress-marker" id="progressMarker"></div>
+  </div>
+  <div id="snoozeIndicator" class="snooze-indicator hidden">⏰ Snoozed — next alert in <span id="snoozeCountdown">--:--</span></div>
   <div class="btn-row">
     <button class="switch-btn" id="switchBtn" onclick="toggleState()">Switch to Standing</button>
     <button class="pause-btn" id="pauseBtn" onclick="togglePause()">⏸️</button>
@@ -445,17 +481,21 @@
     <div class="settings-row">
       <span>🪑 Sit reminder:</span>
       <input type="number" id="sitMin" min="1" max="120" value="30" onchange="saveSettings()">
-      <span>min</span>
+      <span id="sitUnitLabel">min</span>
     </div>
     <div class="settings-row">
       <span>🧍 Stand reminder:</span>
       <input type="number" id="standMin" min="1" max="120" value="20" onchange="saveSettings()">
-      <span>min</span>
+      <span id="standUnitLabel">min</span>
     </div>
     <div class="settings-row" style="margin-top:0.3rem">
       <label>
         <input type="checkbox" id="soundToggle" checked onchange="saveSettings()">
         🔊 Sound
+      </label>
+      <label>
+        <input type="checkbox" id="testModeToggle" onchange="toggleTestMode()">
+        🧪 Test (sec)
       </label>
       <button class="test-btn" onclick="showAlert()">🔔 Test Alert</button>
     </div>
@@ -509,12 +549,110 @@
   </ul>
 </div>
 
-<div style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v1.4</div>
+<details style="margin:1rem;font-size:0.75rem;color:#888">
+  <summary>🔧 Debug Log</summary>
+  <div id="debugLog" style="max-height:150px;overflow-y:auto;font-family:monospace;padding:0.5rem;background:#111;border-radius:4px;margin-top:0.3rem;white-space:pre-wrap"></div>
+  <button onclick="document.getElementById('debugLog').textContent=''" style="margin-top:0.3rem;font-size:0.7rem">Clear</button>
+</details>
+
+<div id="updateBanner" class="notif-banner hidden" style="background:#27ae60">
+  <span>🔄 Update available! Tap to install.</span>
+  <button onclick="applyUpdate()">Update</button>
+  <button onclick="document.getElementById('updateBanner').classList.add('hidden')" style="margin-left:0.3rem;padding:0.2rem 0.5rem;background:transparent;border:1px solid rgba(255,255,255,0.5);color:white;border-radius:4px;cursor:pointer;font-size:0.75rem">✕</button>
+</div>
+
+<div style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v2.7</div>
 
 <script>
+// ── Version & Auto-Update ──────────────────────────────────
+const APP_VERSION = '2.7';    // Web layer version (auto-updatable)
+const APK_VERSION = '2.7';    // Native layer version (manual APK install required)
+const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
+const VERSION_URL = UPDATE_URL + 'version.json';
+let pendingUpdateHtml = null;
+
+function checkForUpdate() {
+  fetch(VERSION_URL + '?t=' + Date.now(), { cache: 'no-store' })
+    .then(r => r.json())
+    .then(data => {
+      dbg('Remote: web=' + data.version + ' minApk=' + data.minApkVersion + ' | Local: web=' + APP_VERSION + ' apk=' + APK_VERSION);
+      // Check if native APK update is needed first
+      if (data.minApkVersion && data.minApkVersion !== APK_VERSION && compareVersions(data.minApkVersion, APK_VERSION) > 0) {
+        const banner = document.getElementById('updateBanner');
+        const msg = banner.querySelector('span');
+        const btn = banner.querySelector('button');
+        msg.textContent = '📦 APK update required — download and install manually';
+        btn.textContent = 'Download';
+        btn.onclick = function() { window.open(data.apkUrl || UPDATE_URL, '_system'); };
+        banner.classList.remove('hidden');
+        dbg('APK update needed: ' + APK_VERSION + ' → ' + data.minApkVersion);
+        return;
+      }
+      // Check for web-layer update
+      if (data.version && data.version !== APP_VERSION && compareVersions(data.version, APP_VERSION) > 0) {
+        dbg('Web update available: ' + APP_VERSION + ' → ' + data.version);
+        fetch(UPDATE_URL + 'index.html?t=' + Date.now(), { cache: 'no-store' })
+          .then(r => r.text())
+          .then(html => {
+            pendingUpdateHtml = html;
+            const banner = document.getElementById('updateBanner');
+            banner.querySelector('span').textContent = '🔄 Update available (v' + data.version + ')! Tap to install.';
+            banner.classList.remove('hidden');
+            dbg('Update downloaded and ready to install');
+          })
+          .catch(e => dbg('Update download failed: ' + e.message));
+      } else {
+        dbg('App is up to date (v' + APP_VERSION + ')');
+      }
+    })
+    .catch(e => dbg('Update check failed: ' + e.message));
+}
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0, nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+window.applyUpdate = function() {
+  if (!pendingUpdateHtml) return;
+  try {
+    localStorage.setItem('sitstand_pending_update', pendingUpdateHtml);
+    dbg('Update saved — reloading...');
+    window.location.reload();
+  } catch (e) {
+    dbg('Update apply failed: ' + e.message);
+  }
+};
+
+// On load: check if there's a pending update to apply
+(function() {
+  const pending = localStorage.getItem('sitstand_pending_update');
+  if (pending) {
+    localStorage.removeItem('sitstand_pending_update');
+    document.open();
+    document.write(pending);
+    document.close();
+    return;
+  }
+})();
+
 // ── State ──────────────────────────────────────────────────
 const LS_KEY = 'sitstand_v3';
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function dbg(msg) {
+  const el = document.getElementById('debugLog');
+  if (!el) return;
+  const ts = new Date().toLocaleTimeString();
+  el.textContent += `[${ts}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+}
 
 let state = {
   mode: 'sitting',
@@ -523,6 +661,7 @@ let state = {
   pausedAt: null,
   sitMin: 30,
   standMin: 20,
+  testMode: false,
   sound: true,
   log: [],
   todaySitMs: 0,
@@ -564,7 +703,10 @@ function load() {
   } catch (e) { /* corrupted, use defaults */ }
 }
 
-// ── DOM refs ───────────────────────────────────────────────
+// ── Platform detection ──────────────────────────────────────
+const isCapacitor = typeof window.Capacitor !== 'undefined' && window.Capacitor.isNativePlatform();
+let CapLocalNotifications = null;
+
 const card         = document.getElementById('card');
 const icon         = document.getElementById('icon');
 const label        = document.getElementById('label');
@@ -572,10 +714,14 @@ const elapsed      = document.getElementById('elapsed');
 const switchBtn    = document.getElementById('switchBtn');
 const pauseBtn     = document.getElementById('pauseBtn');
 const progressBar  = document.getElementById('progressBar');
+const progressMarker = document.getElementById('progressMarker');
 const logList      = document.getElementById('logList');
 const sitMinIn     = document.getElementById('sitMin');
 const standMinIn   = document.getElementById('standMin');
 const soundTgl     = document.getElementById('soundToggle');
+const testModeTgl  = document.getElementById('testModeToggle');
+const sitUnitLabel = document.getElementById('sitUnitLabel');
+const standUnitLabel = document.getElementById('standUnitLabel');
 const totalSitEl   = document.getElementById('totalSit');
 const totalStandEl = document.getElementById('totalStand');
 const notifBanner  = document.getElementById('notifBanner');
@@ -591,6 +737,19 @@ const schedStatusText = document.getElementById('schedStatusText');
 
 function currentIntervalMin() {
   return state.mode === 'sitting' ? state.sitMin : state.standMin;
+}
+
+function currentIntervalMs() {
+  const val = currentIntervalMin();
+  return state.testMode ? val * 1000 : val * 60 * 1000;
+}
+
+function toggleTestMode() {
+  state.testMode = testModeTgl.checked;
+  sitUnitLabel.textContent = state.testMode ? 'sec' : 'min';
+  standUnitLabel.textContent = state.testMode ? 'sec' : 'min';
+  save();
+  if (!state.paused) resetReminderTimer();
 }
 
 // ── Schedule logic ─────────────────────────────────────────
@@ -733,6 +892,10 @@ function checkNotifPermission() {
   if (!('Notification' in window)) return;
   const msg = document.getElementById('notifMsg');
   const btn = document.getElementById('notifBtn');
+  if (isCapacitor || typeof Notification === 'undefined') {
+    notifBanner.classList.add('hidden');
+    return;
+  }
   notifBanner.classList.remove('hidden');
   if (Notification.permission === 'granted') {
     msg.textContent = '✅ Notifications enabled — you\'ll get background alerts';
@@ -746,7 +909,7 @@ function checkNotifPermission() {
   }
 }
 function requestNotifPermission() {
-  Notification.requestPermission().then(() => checkNotifPermission());
+  if (typeof Notification !== 'undefined') Notification.requestPermission().then(() => checkNotifPermission());
 }
 
 // ── Alarm sound ────────────────────────────────────────────
@@ -806,23 +969,26 @@ function stopTitleFlash() {
 
 // ── Alert overlay ──────────────────────────────────────────
 let alertActive = false;
+let alertShownAt = 0;
 
 function showAlert() {
-  if (state.paused) return;
+  if (state.paused) { dbg('showAlert: skipped (paused)'); return; }
   alertActive = true;
+  alertShownAt = Date.now();
   const sitting = state.mode === 'sitting';
   const mins = currentIntervalMin();
+  dbg(`showAlert: mode=${state.mode}, isCapacitor=${isCapacitor}, _AlarmAlert=${!!window._AlarmAlert}`);
   alertOverlay.className = 'alert-overlay ' + (sitting ? 'sit-alert' : 'stand-alert');
   alertIcon.textContent   = sitting ? '🧍' : '🪑';
   alertTitle.textContent  = sitting ? 'Time to stand!' : 'Time to sit!';
-  alertSub.textContent    = `You've been ${sitting ? 'sitting' : 'standing'} for ${mins}+ minutes`;
+  alertSub.textContent    = `You've been ${sitting ? 'sitting' : 'standing'} for ${mins}+ ${state.testMode ? 'seconds' : 'minutes'}`;
   alertSwitchBtn.textContent = sitting ? '🧍 I\'m Standing Now' : '🪑 I\'m Sitting Now';
   alertOverlay.classList.remove('hidden');
 
   startAlarm();
   startTitleFlash(sitting ? 'STAND UP!' : 'SIT DOWN!');
 
-  if (Notification.permission === 'granted') {
+  if (!isCapacitor && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.ready.then(reg => {
         reg.showNotification(sitting ? '⏰ Time to stand!' : '⏰ Time to sit!', {
@@ -846,6 +1012,25 @@ function showAlert() {
       });
     }
   }
+
+  // Native alarm-style alert — brings app to front like an alarm clock
+  if (isCapacitor && window._AlarmAlert) {
+    const snoozeLabel = state.testMode ? 'Snooze 10s' : 'Snooze 5m';
+    const snoozeDurationMs = state.testMode ? 10000 : 300000;
+    dbg('AlarmAlert.showAlert() calling... snooze=' + snoozeLabel);
+    window._AlarmAlert.showAlert({
+      title: sitting ? '⏰ Time to stand!' : '⏰ Time to sit!',
+      body: `You've been ${sitting ? 'sitting' : 'standing'} for ${mins}+ ${state.testMode ? 'sec' : 'min'}`,
+      snoozeLabel: snoozeLabel,
+      snoozeDurationMs: snoozeDurationMs
+    }).then(() => {
+      dbg('AlarmAlert.showAlert() succeeded');
+    }).catch(e => {
+      dbg('AlarmAlert.showAlert() FAILED: ' + (e.message || JSON.stringify(e)));
+    });
+  } else if (isCapacitor) {
+    dbg('AlarmAlert NOT available! _AlarmAlert=' + typeof window._AlarmAlert);
+  }
 }
 
 function hideAlert() {
@@ -853,11 +1038,16 @@ function hideAlert() {
   alertOverlay.classList.add('hidden');
   stopAlarm();
   stopTitleFlash();
+  if (isCapacitor && window._AlarmAlert) {
+    window._AlarmAlert.dismissAlert().catch(() => {});
+  }
 }
 
 function dismissAlert() {
   hideAlert();
-  // Re-arm the timer from now so it fires again after the full interval
+  // Reset switchedAt so visibilitychange doesn't immediately re-trigger
+  state.switchedAt = Date.now();
+  save();
   resetReminderTimer();
 }
 
@@ -872,7 +1062,21 @@ function snooze(minutes) {
   cancelSwNotify();
   const ms = minutes * 60 * 1000;
   snoozedUntil = Date.now() + ms;
-  reminderTimer = setTimeout(() => { snoozedUntil = 0; showAlert(); }, ms);
+  state.snoozedUntil = snoozedUntil;
+  save();
+  reminderTimer = setTimeout(() => { snoozedUntil = 0; state.snoozedUntil = 0; save(); showAlert(); }, ms);
+  scheduleSwNotify(ms);
+}
+
+function snoozeSeconds(seconds) {
+  hideAlert();
+  clearTimeout(reminderTimer);
+  cancelSwNotify();
+  const ms = seconds * 1000;
+  snoozedUntil = Date.now() + ms;
+  state.snoozedUntil = snoozedUntil;
+  save();
+  reminderTimer = setTimeout(() => { snoozedUntil = 0; state.snoozedUntil = 0; save(); showAlert(); }, ms);
   scheduleSwNotify(ms);
 }
 
@@ -923,11 +1127,12 @@ let snoozedUntil = 0;   // timestamp: suppress re-alert until this time
 
 function resetReminderTimer() {
   snoozedUntil = 0;
+  state.snoozedUntil = 0;
   clearTimeout(reminderTimer);
   cancelSwNotify();
   if (alertActive) hideAlert();
   if (state.paused) return;
-  const ms = currentIntervalMin() * 60 * 1000;
+  const ms = currentIntervalMs();
   reminderTimer = setTimeout(showAlert, ms);
   scheduleSwNotify(ms);
 }
@@ -984,6 +1189,7 @@ function render() {
     pauseBtn.textContent = '▶️';
     pauseBtn.classList.add('is-paused');
     progressBar.style.width = '0%';
+    progressMarker.style.display = 'none';
   } else {
     card.className = 'status-card ' + state.mode;
     icon.textContent  = sitting ? '🪑' : '🧍';
@@ -998,6 +1204,9 @@ function render() {
   sitMinIn.value   = state.sitMin;
   standMinIn.value = state.standMin;
   soundTgl.checked = state.sound;
+  testModeTgl.checked = state.testMode;
+  sitUnitLabel.textContent = state.testMode ? 'sec' : 'min';
+  standUnitLabel.textContent = state.testMode ? 'sec' : 'min';
 
   // Schedule UI
   document.getElementById('schedEnabled').checked = state.schedEnabled;
@@ -1017,7 +1226,7 @@ function updateElapsed() {
     elapsed.classList.remove('overdue');
     progressBar.style.width = '0%';
     progressBar.classList.remove('overdue');
-    // Still show totals
+    progressMarker.style.display = 'none';
     totalSitEl.textContent   = formatHM(state.todaySitMs);
     totalStandEl.textContent = formatHM(state.todayStandMs);
     return;
@@ -1025,14 +1234,62 @@ function updateElapsed() {
 
   const ms = Date.now() - state.switchedAt;
   elapsed.textContent = formatDuration(ms);
-  const thresholdMs = currentIntervalMin() * 60 * 1000;
+  const thresholdMs = currentIntervalMs();
   const overdue = ms >= thresholdMs;
   elapsed.classList.toggle('overdue', overdue);
 
-  // Progress bar
-  const pct = Math.min((ms / thresholdMs) * 100, 100);
-  progressBar.style.width = pct + '%';
+  // Progress bar — when overdue, bar fills 100% and a red marker shows where the target was
+  if (overdue) {
+    progressBar.style.width = '100%';
+    const markerPct = (thresholdMs / ms) * 100;
+    progressMarker.style.left = markerPct + '%';
+    progressMarker.style.display = 'block';
+  } else {
+    progressBar.style.width = ((ms / thresholdMs) * 100) + '%';
+    progressMarker.style.display = 'none';
+  }
   progressBar.classList.toggle('overdue', overdue);
+
+  // Snooze countdown indicator
+  const snoozeInd = document.getElementById('snoozeIndicator');
+  const snoozeCd = document.getElementById('snoozeCountdown');
+
+  // Poll native snoozedUntil while alert is active (catches notification action button taps)
+  // Grace period: don't poll for 3s after alert shown to avoid stale SharedPreferences
+  if (alertActive && isCapacitor && window._AlarmAlert && snoozedUntil === 0 && (Date.now() - alertShownAt) > 3000) {
+    window._AlarmAlert.getSnoozedUntil().then(r => {
+      if (r.snoozedUntil && r.snoozedUntil > Date.now()) {
+        dbg('Native snooze detected while alert active — dismissing overlay');
+        snoozedUntil = r.snoozedUntil;
+        state.snoozedUntil = r.snoozedUntil;
+        save();
+        alertActive = false;
+        alertOverlay.classList.add('hidden');
+        stopAlarm();
+        stopTitleFlash();
+        clearTimeout(reminderTimer);
+        const remaining = r.snoozedUntil - Date.now();
+        reminderTimer = setTimeout(() => { snoozedUntil = 0; state.snoozedUntil = 0; save(); showAlert(); }, remaining);
+      }
+    }).catch(() => {});
+  }
+
+  if (snoozedUntil > Date.now()) {
+    const remaining = snoozedUntil - Date.now();
+    snoozeCd.textContent = formatDuration(remaining);
+    snoozeInd.classList.remove('hidden');
+  } else {
+    snoozeInd.classList.add('hidden');
+    // Auto-trigger alert if snooze just expired and we're overdue
+    if (snoozedUntil > 0) {
+      snoozedUntil = 0;
+      state.snoozedUntil = 0;
+      save();
+      if (!alertActive && ms >= thresholdMs) {
+        showAlert();
+      }
+    }
+  }
 
   const liveSit   = state.todaySitMs   + (state.mode === 'sitting'  ? ms : 0);
   const liveStand = state.todayStandMs + (state.mode === 'standing' ? ms : 0);
@@ -1087,14 +1344,156 @@ render();
 checkNotifPermission();
 wasInSchedule = isWithinSchedule();
 
+// ── Capacitor Integration (plugins, listeners, foreground service, permissions) ──
+// Must be BEFORE timer restoration below, so _AlarmAlert is available if showAlert() fires
+if (isCapacitor) {
+  try {
+    dbg('Capacitor detected, registering plugins...');
+    dbg('Capacitor keys: ' + Object.keys(window.Capacitor).join(','));
+    dbg('Capacitor.Plugins: ' + (window.Capacitor.Plugins ? Object.keys(window.Capacitor.Plugins).join(',') : 'NONE'));
+    const Plugins = window.Capacitor.Plugins;
+    const ForegroundService = Plugins.ForegroundService;
+    window._AlarmAlert = Plugins.AlarmAlert;
+    CapLocalNotifications = Plugins.LocalNotifications;
+    dbg('Plugins OK: FG=' + !!ForegroundService + ' Alarm=' + !!window._AlarmAlert + ' LN=' + !!CapLocalNotifications);
+
+    try {
+      CapLocalNotifications.registerActionTypes({
+        types: [{ id: 'SITSTAND_ACTIONS', actions: [
+          { id: 'switch', title: '🔄 Switch' },
+          { id: 'snooze5', title: '⏰ 5m' },
+          { id: 'pause', title: '⏸️ Pause' }
+        ]}]
+      });
+      dbg('Action types registered');
+    } catch (e) { dbg('registerActionTypes err: ' + e.message); }
+
+    try {
+      CapLocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+        const actionId = action.actionId;
+        if (actionId === 'switch') { hideAlert(); toggleState(); }
+        else if (actionId === 'snooze5') { hideAlert(); snooze(5); }
+        else if (actionId === 'pause') { hideAlert(); if (!state.paused) togglePause(); }
+      });
+      dbg('Notification listener added');
+    } catch (e) { dbg('addListener err: ' + e.message); }
+
+    CapLocalNotifications.requestPermissions().catch(e => dbg('reqPerms err: ' + e.message));
+
+    function fgStart(text) {
+      ForegroundService.start({ text: text || statusText() }).catch(e => dbg('fgStart err: ' + e.message));
+    }
+    function fgStop() {
+      ForegroundService.stop().catch(e => dbg('fgStop err: ' + e.message));
+    }
+    function fgUpdate() {
+      if (!state.paused) {
+        ForegroundService.update({ text: statusText() }).catch(e => dbg('fgUpdate err: ' + e.message));
+      }
+    }
+    function statusText() {
+      const mode = state.mode === 'sitting' ? 'Sitting' : 'Standing';
+      const el = Math.floor((Date.now() - state.switchedAt) / 60000);
+      return `${mode} for ${el} min`;
+    }
+
+    try { if (!state.paused) fgStart(); } catch (e) { dbg('fgStart init err: ' + e.message); }
+    setInterval(() => { if (!state.paused) fgUpdate(); }, 60000);
+
+    const origTogglePause = togglePause;
+    togglePause = function() {
+      origTogglePause();
+      if (state.paused) fgStop(); else fgStart();
+    };
+
+    const origToggleState = toggleState;
+    toggleState = function() {
+      origToggleState();
+      fgUpdate();
+    };
+    dbg('FG service hooks done');
+
+    // ── Permission checking ──
+    const permBanner = document.getElementById('permBanner');
+    const permMsg = document.getElementById('permMsg');
+    let permTarget = 'notifications';
+    // Track which non-critical banners user has dismissed
+    let dismissedPerms = JSON.parse(localStorage.getItem('dismissedPerms') || '{}');
+
+    window.dismissPermBanner = function() {
+      permBanner.classList.add('hidden');
+      // Don't allow dismissing the critical notification permission
+      if (permTarget !== 'notifications') {
+        dismissedPerms[permTarget] = true;
+        localStorage.setItem('dismissedPerms', JSON.stringify(dismissedPerms));
+      }
+    };
+
+    function checkNativePermissions() {
+      window._AlarmAlert.checkPermissions().then(result => {
+        dbg('Permissions: notif=' + result.notifications + ' battery=' + result.batteryUnrestricted + ' exactAlarms=' + result.exactAlarms);
+        // Priority order: notifications > exact alarms > battery
+        if (!result.notifications) {
+          permMsg.textContent = '🔔 Notification permission is required for alerts';
+          permTarget = 'notifications';
+          // Always show — critical
+          delete dismissedPerms['notifications'];
+          localStorage.setItem('dismissedPerms', JSON.stringify(dismissedPerms));
+          permBanner.classList.remove('hidden');
+        } else if (!result.exactAlarms && !dismissedPerms['exactAlarms']) {
+          permMsg.textContent = '⏰ Enable "Alarms & reminders" for reliable snooze timers';
+          permTarget = 'exactAlarms';
+          permBanner.classList.remove('hidden');
+        } else if (!result.batteryUnrestricted && !dismissedPerms['battery']) {
+          permMsg.textContent = '🔋 Disable battery optimization for reliable background alerts';
+          permTarget = 'battery';
+          permBanner.classList.remove('hidden');
+        } else {
+          permBanner.classList.add('hidden');
+        }
+      }).catch(e => { dbg('checkPerms err: ' + (e.message || e)); });
+    }
+
+    window.fixPermissions = function() {
+      window._AlarmAlert.openSettings({ target: permTarget }).then(() => {
+        // Re-check after varying delays — settings changes can be slow to propagate
+        setTimeout(checkNativePermissions, 1000);
+        setTimeout(checkNativePermissions, 3000);
+        setTimeout(checkNativePermissions, 5000);
+      });
+    };
+
+    checkNativePermissions();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        checkNativePermissions();
+        setTimeout(checkNativePermissions, 2000);
+      }
+    });
+    dbg('Capacitor init COMPLETE');
+  } catch (e) {
+    dbg('Capacitor init FATAL: ' + (e.message || e));
+  }
+}
+
+// ── Timer restoration ──
 if (!state.paused) {
-  const restoredElapsed = Date.now() - state.switchedAt;
-  if (restoredElapsed >= currentIntervalMin() * 60 * 1000) {
-    showAlert();
+  // Restore snoozedUntil from persisted state
+  if (state.snoozedUntil && state.snoozedUntil > Date.now()) {
+    snoozedUntil = state.snoozedUntil;
+    const remaining = state.snoozedUntil - Date.now();
+    dbg('Restoring snooze: ' + Math.round(remaining/1000) + 's remaining');
+    reminderTimer = setTimeout(() => { snoozedUntil = 0; state.snoozedUntil = 0; save(); showAlert(); }, remaining);
   } else {
-    const remaining = (currentIntervalMin() * 60 * 1000) - restoredElapsed;
-    reminderTimer = setTimeout(showAlert, remaining);
-    scheduleSwNotify(remaining);
+    state.snoozedUntil = 0;
+    const restoredElapsed = Date.now() - state.switchedAt;
+    if (restoredElapsed >= currentIntervalMs()) {
+      showAlert();
+    } else {
+      const remaining = currentIntervalMs() - restoredElapsed;
+      reminderTimer = setTimeout(showAlert, remaining);
+      scheduleSwNotify(remaining);
+    }
   }
 }
 
@@ -1102,16 +1501,41 @@ setInterval(updateElapsed, 1000);
 setInterval(save, 15000);
 // Check schedule every minute
 setInterval(() => { updateScheduleStatus(); checkScheduleState(); }, 60000);
+// Check for updates on launch and every 6 hours
+setTimeout(checkForUpdate, 5000);
+setInterval(checkForUpdate, 6 * 60 * 60 * 1000);
 
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     updateElapsed();
     updateScheduleStatus();
-    if (!state.paused && !alertActive && Date.now() >= snoozedUntil && (Date.now() - state.switchedAt) >= currentIntervalMin() * 60 * 1000) {
+    // Sync snoozedUntil from native (in case user snoozed from notification action)
+    if (isCapacitor && window._AlarmAlert) {
+      window._AlarmAlert.getSnoozedUntil().then(r => {
+        if (r.snoozedUntil && r.snoozedUntil > Date.now() && snoozedUntil === 0) {
+          dbg('Synced native snoozedUntil: ' + Math.round((r.snoozedUntil - Date.now())/1000) + 's remaining');
+          snoozedUntil = r.snoozedUntil;
+          state.snoozedUntil = r.snoozedUntil;
+          save();
+          // Hide the in-app overlay since user already snoozed from notification
+          if (alertActive) {
+            alertActive = false;
+            alertOverlay.classList.add('hidden');
+            stopAlarm();
+            stopTitleFlash();
+          }
+          clearTimeout(reminderTimer);
+          const remaining = r.snoozedUntil - Date.now();
+          reminderTimer = setTimeout(() => { snoozedUntil = 0; state.snoozedUntil = 0; save(); showAlert(); }, remaining);
+        }
+      }).catch(() => {});
+    }
+    if (!state.paused && !alertActive && Date.now() >= snoozedUntil && (Date.now() - state.switchedAt) >= currentIntervalMs()) {
       showAlert();
     }
   }
 });
+
 </script>
 </body>
 </html>
