@@ -1,6 +1,6 @@
 {
-  "version": "2.10",
-  "minApkVersion": "2.7",
+  "version": "2.11",
+  "minApkVersion": "2.11",
   "apkUrl": "https://github.com/scottkmerli-ui/sit-stand/releases/latest/download/SitStand.apk",
   "released": "2026-04-18"
 }
