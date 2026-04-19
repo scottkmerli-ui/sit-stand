@@ -333,6 +333,87 @@
     width: 100%;
     max-width: 460px;
   }
+
+  /* Health Dashboard */
+  .health-section {
+    margin-top: 1.5rem;
+    width: 100%;
+    max-width: 460px;
+  }
+  .health-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.6rem;
+    cursor: pointer;
+  }
+  .health-header h2 { font-size: 1rem; color: var(--muted); }
+  .health-header .toggle-arrow { color: var(--muted); font-size: 0.9rem; transition: transform 0.2s; }
+  .health-body {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+  }
+  .health-stars {
+    text-align: center;
+    font-size: 1.8rem;
+    letter-spacing: 0.15em;
+    margin-bottom: 0.3rem;
+  }
+  .health-grade {
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.8rem;
+  }
+  .health-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem 1.2rem;
+  }
+  .health-metric {
+    display: flex;
+    flex-direction: column;
+  }
+  .health-metric .hm-label {
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .health-metric .hm-value {
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+  .health-metric .hm-value.good { color: var(--stand-color); }
+  .health-metric .hm-value.warn { color: #f39c12; }
+  .health-metric .hm-value.bad  { color: var(--sit-color); }
+  .health-streak {
+    margin-top: 0.7rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid #222;
+    display: flex;
+    gap: 3px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .streak-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid #333;
+  }
+  .streak-dot.good  { background: var(--stand-color); }
+  .streak-dot.ok    { background: #f39c12; }
+  .streak-dot.bad   { background: var(--sit-color); }
+  .streak-dot.empty { background: #222; }
+  .streak-label {
+    width: 100%;
+    text-align: center;
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+  }
   .log-header {
     display: flex;
     justify-content: space-between;
@@ -539,6 +620,52 @@
   </div>
 </div>
 
+<div class="health-section" id="healthSection">
+  <div class="health-header" onclick="toggleHealth()">
+    <h2>📊 Daily Health Score</h2>
+    <span class="toggle-arrow" id="healthArrow">▼</span>
+  </div>
+  <div class="health-body" id="healthBody">
+    <div class="health-stars" id="healthStars">☆☆☆☆☆</div>
+    <div class="health-grade" id="healthGrade">No data yet</div>
+    <div class="health-grid">
+      <div class="health-metric">
+        <span class="hm-label">Total Sitting</span>
+        <span class="hm-value" id="hmTotalSit">0:00</span>
+      </div>
+      <div class="health-metric">
+        <span class="hm-label">Total Moving</span>
+        <span class="hm-value" id="hmTotalStand">0:00</span>
+      </div>
+      <div class="health-metric">
+        <span class="hm-label">Longest Sit</span>
+        <span class="hm-value" id="hmLongestSit">—</span>
+      </div>
+      <div class="health-metric">
+        <span class="hm-label">Avg Sit</span>
+        <span class="hm-value" id="hmAvgSit">—</span>
+      </div>
+      <div class="health-metric">
+        <span class="hm-label">Longest Move</span>
+        <span class="hm-value" id="hmLongestStand">—</span>
+      </div>
+      <div class="health-metric">
+        <span class="hm-label">Avg Move</span>
+        <span class="hm-value" id="hmAvgStand">—</span>
+      </div>
+      <div class="health-metric">
+        <span class="hm-label">Sit:Move Ratio</span>
+        <span class="hm-value" id="hmRatio">—</span>
+      </div>
+      <div class="health-metric">
+        <span class="hm-label">Breaks Taken</span>
+        <span class="hm-value" id="hmBreaks">0</span>
+      </div>
+    </div>
+    <div class="health-streak" id="healthStreak"></div>
+  </div>
+</div>
+
 <div class="log-section">
   <div class="log-header">
     <h2>📋 Today's Log</h2>
@@ -565,7 +692,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '3.3';    // Web layer version (auto-updatable)
+const APP_VERSION = '3.4';    // Web layer version (auto-updatable)
 const APK_VERSION = '3.3';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
@@ -1240,6 +1367,7 @@ function render() {
   renderWeekGrid();
 
   renderLog();
+  renderHealth();
   updateElapsed();
 }
 
@@ -1337,6 +1465,171 @@ function renderLog() {
       <span class="log-dur">${dur}</span>
     </li>`;
   }).join('');
+}
+
+// ── Health Dashboard ──────────────────────────────────────
+let healthCollapsed = false;
+
+function toggleHealth() {
+  healthCollapsed = !healthCollapsed;
+  document.getElementById('healthBody').style.display = healthCollapsed ? 'none' : '';
+  document.getElementById('healthArrow').textContent = healthCollapsed ? '▶' : '▼';
+}
+
+function computeHealth() {
+  const now = Date.now();
+  const entries = state.log;
+  if (!entries.length) return null;
+
+  const sitSessions = [];
+  const standSessions = [];
+
+  for (const e of entries) {
+    if (e.mode === 'paused') continue;
+    const end = e.end || now;
+    const dur = end - e.start;
+    if (dur <= 0) continue;
+    if (e.mode === 'sitting') sitSessions.push(dur);
+    else standSessions.push(dur);
+  }
+
+  const sitTotal = sitSessions.reduce((a, b) => a + b, 0);
+  const standTotal = standSessions.reduce((a, b) => a + b, 0);
+  const longestSit = sitSessions.length ? Math.max(...sitSessions) : 0;
+  const longestStand = standSessions.length ? Math.max(...standSessions) : 0;
+  const avgSit = sitSessions.length ? sitTotal / sitSessions.length : 0;
+  const avgStand = standSessions.length ? standTotal / standSessions.length : 0;
+  const breaks = standSessions.length;
+
+  // Star rating (0-5) based on multiple factors
+  let stars = 0;
+  const sitThreshold = state.sitMin * 60000;
+
+  // 1. Regularity: what % of sit sessions stayed within the target? (0-2 stars)
+  if (sitSessions.length > 0) {
+    const onTime = sitSessions.filter(d => d <= sitThreshold * 1.1).length; // 10% grace
+    const pct = onTime / sitSessions.length;
+    if (pct >= 0.9) stars += 2;
+    else if (pct >= 0.7) stars += 1.5;
+    else if (pct >= 0.5) stars += 1;
+    else if (pct >= 0.3) stars += 0.5;
+  }
+
+  // 2. Longest sit: penalty if any sit was excessively long (0-1 star)
+  if (longestSit <= sitThreshold) stars += 1;
+  else if (longestSit <= sitThreshold * 1.5) stars += 0.5;
+
+  // 3. Sit:Move ratio (ideally 60:40 or better) (0-1 star)
+  const total = sitTotal + standTotal;
+  if (total > 0) {
+    const movePct = standTotal / total;
+    if (movePct >= 0.35) stars += 1;
+    else if (movePct >= 0.25) stars += 0.5;
+  }
+
+  // 4. Took enough breaks (0-1 star)
+  const activeHours = total / 3600000;
+  if (activeHours > 0) {
+    const breaksPerHour = breaks / activeHours;
+    if (breaksPerHour >= 1.5) stars += 1;
+    else if (breaksPerHour >= 1.0) stars += 0.5;
+  }
+
+  stars = Math.min(5, Math.round(stars * 2) / 2); // round to nearest 0.5
+
+  // Per-session streak: green=on time, yellow=slightly over, red=way over
+  const streak = [];
+  for (const e of entries) {
+    if (e.mode === 'paused') continue;
+    const end = e.end || now;
+    const dur = end - e.start;
+    if (e.mode === 'sitting') {
+      if (dur <= sitThreshold * 1.1) streak.push('good');
+      else if (dur <= sitThreshold * 1.5) streak.push('ok');
+      else streak.push('bad');
+    } else {
+      streak.push('good'); // standing is always good
+    }
+  }
+
+  return { sitTotal, standTotal, longestSit, longestStand, avgSit, avgStand, breaks, stars, streak };
+}
+
+function renderHealth() {
+  const h = computeHealth();
+  const starsEl = document.getElementById('healthStars');
+  const gradeEl = document.getElementById('healthGrade');
+
+  if (!h) {
+    starsEl.textContent = '☆☆☆☆☆';
+    gradeEl.textContent = 'No data yet';
+    gradeEl.style.color = 'var(--muted)';
+    document.getElementById('healthStreak').innerHTML = '';
+    return;
+  }
+
+  // Render stars (filled ★, half ★, empty ☆)
+  let starStr = '';
+  for (let i = 1; i <= 5; i++) {
+    if (h.stars >= i) starStr += '★';
+    else if (h.stars >= i - 0.5) starStr += '★'; // half counts as full visually with color
+    else starStr += '☆';
+  }
+  starsEl.textContent = starStr;
+
+  // Grade label and color
+  const grades = [
+    [5,   'Excellent! 🏆', 'var(--stand-color)'],
+    [4,   'Great job! 💪',  'var(--stand-color)'],
+    [3,   'Good effort 👍', '#f39c12'],
+    [2,   'Room to improve 🚶', '#f39c12'],
+    [1,   'Try to move more 🪑', 'var(--sit-color)'],
+    [0,   'Get moving! ⚠️',  'var(--sit-color)'],
+  ];
+  const grade = grades.find(g => h.stars >= g[0]) || grades[grades.length - 1];
+  gradeEl.textContent = grade[1];
+  gradeEl.style.color = grade[2];
+
+  // Metrics
+  const sitThreshold = state.sitMin * 60000;
+  const el = id => document.getElementById(id);
+
+  el('hmTotalSit').textContent = formatHM(h.sitTotal);
+  el('hmTotalStand').textContent = formatHM(h.standTotal);
+
+  el('hmLongestSit').textContent = h.longestSit ? formatHM(h.longestSit) : '—';
+  el('hmLongestSit').className = 'hm-value ' + (h.longestSit > sitThreshold * 1.5 ? 'bad' : h.longestSit > sitThreshold ? 'warn' : 'good');
+
+  el('hmAvgSit').textContent = h.avgSit ? formatHM(h.avgSit) : '—';
+  el('hmAvgSit').className = 'hm-value ' + (h.avgSit > sitThreshold ? 'warn' : 'good');
+
+  el('hmLongestStand').textContent = h.longestStand ? formatHM(h.longestStand) : '—';
+  el('hmLongestStand').className = 'hm-value good';
+
+  el('hmAvgStand').textContent = h.avgStand ? formatHM(h.avgStand) : '—';
+  el('hmAvgStand').className = 'hm-value good';
+
+  const total = h.sitTotal + h.standTotal;
+  if (total > 0) {
+    const sitPct = Math.round((h.sitTotal / total) * 100);
+    const standPct = 100 - sitPct;
+    el('hmRatio').textContent = sitPct + ':' + standPct;
+    el('hmRatio').className = 'hm-value ' + (standPct >= 35 ? 'good' : standPct >= 25 ? 'warn' : 'bad');
+  } else {
+    el('hmRatio').textContent = '—';
+  }
+
+  el('hmBreaks').textContent = h.breaks;
+
+  // Streak visualization (one dot per session)
+  const streakEl = document.getElementById('healthStreak');
+  if (h.streak.length) {
+    streakEl.innerHTML = h.streak.map(s =>
+      `<div class="streak-dot ${s}" title="${s}"></div>`
+    ).join('') + `<div class="streak-label">Session-by-session: 🟢 on time · 🟡 slightly over · 🔴 way over</div>`;
+  } else {
+    streakEl.innerHTML = '';
+  }
 }
 
 function saveSettings() {
@@ -1522,6 +1815,7 @@ if (!state.paused) {
 }
 
 setInterval(updateElapsed, 1000);
+setInterval(renderHealth, 30000); // refresh health dashboard every 30s
 setInterval(save, 15000);
 // Check schedule every minute
 setInterval(() => { updateScheduleStatus(); checkScheduleState(); }, 60000);
