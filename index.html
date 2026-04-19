@@ -577,15 +577,16 @@
   <button onclick="document.getElementById('updateBanner').classList.add('hidden')" style="margin-left:0.3rem;padding:0.2rem 0.5rem;background:transparent;border:1px solid rgba(255,255,255,0.5);color:white;border-radius:4px;cursor:pointer;font-size:0.75rem">✕</button>
 </div>
 
-<div style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v2.7</div>
+<div id="app-version-display" style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v2.7</div>
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '2.15';    // Web layer version (auto-updatable)
+const APP_VERSION = '2.16';    // Web layer version (auto-updatable)
 const APK_VERSION = '2.7';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
 let pendingUpdateHtml = null;
+document.getElementById('app-version-display').textContent = 'v' + APP_VERSION;
 
 function checkForUpdate() {
   fetch(VERSION_URL + '?t=' + Date.now(), { cache: 'no-store' })
