@@ -565,8 +565,8 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '3.2';    // Web layer version (auto-updatable)
-const APK_VERSION = '2.7';    // Native layer version (manual APK install required)
+const APP_VERSION = '3.3';    // Web layer version (auto-updatable)
+const APK_VERSION = '3.3';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
 let pendingUpdateHtml = null;
@@ -861,6 +861,14 @@ if ('serviceWorker' in navigator) {
 }
 
 function scheduleSwNotify(delayMs) {
+  // Native Capacitor: schedule via AlarmManager (survives app close)
+  if (isCapacitor && window._AlarmAlert) {
+    window._AlarmAlert.scheduleReminder({ delayMs: delayMs })
+      .then(() => dbg('Native alarm scheduled: ' + Math.round(delayMs/60000) + ' min'))
+      .catch(e => dbg('scheduleReminder failed: ' + e.message));
+    return;
+  }
+  // PWA fallback: service worker notification
   if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return;
   const sitting = state.mode === 'sitting';
   navigator.serviceWorker.controller.postMessage({
@@ -873,6 +881,14 @@ function scheduleSwNotify(delayMs) {
 }
 
 function cancelSwNotify() {
+  // Native Capacitor: cancel AlarmManager alarm
+  if (isCapacitor && window._AlarmAlert) {
+    window._AlarmAlert.cancelReminder()
+      .then(() => dbg('Native alarm cancelled'))
+      .catch(e => dbg('cancelReminder failed: ' + e.message));
+    return;
+  }
+  // PWA fallback
   if (navigator.serviceWorker && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({ type: 'CANCEL_NOTIFY' });
   }
