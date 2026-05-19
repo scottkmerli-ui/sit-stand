@@ -2538,8 +2538,13 @@ function getDetectionSignals() {
       const stepTransition = Math.max(recentStepEntry.ts, state.switchedAt);
       earliestTransitionSignal = Math.min(earliestTransitionSignal, stepTransition);
     } else if (recentStepEntry.count === 0) {
-      sitScore += 0.3;
+      sitScore += 0.35;
       signals.reasons.push('no steps');
+      // Stronger signal if currently standing (transition detection)
+      if (state.mode === 'standing') {
+        sitScore += 0.15;
+        signals.reasons.push('was standing');
+      }
       // For "sat down" transition, estimate from when steps stopped
       // Use midpoint between last active steps and now as best guess
       const lastActive = smartState.stepHistory.slice().reverse()
