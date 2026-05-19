@@ -2538,17 +2538,26 @@ function getDetectionSignals() {
       const stepTransition = Math.max(recentStepEntry.ts, state.switchedAt);
       earliestTransitionSignal = Math.min(earliestTransitionSignal, stepTransition);
     } else if (recentStepEntry.count === 0) {
-      sitScore += 0.35;
-      signals.reasons.push('no steps');
-      // Stronger signal if currently standing (transition detection)
-      if (state.mode === 'standing') {
-        sitScore += 0.15;
-        signals.reasons.push('was standing');
-      }
-      // For "sat down" transition, estimate from when steps stopped
-      // Use midpoint between last active steps and now as best guess
+      // Find how long since last steps were detected
       const lastActive = smartState.stepHistory.slice().reverse()
         .find(s => s.count > 0 && s.ts > Date.now() - 1800000);
+      const noStepsSince = lastActive ? lastActive.ts : (smartState.stepHistory[0] ? smartState.stepHistory[0].ts : Date.now());
+      const noStepsDurationMs = Date.now() - noStepsSince;
+      const noStepsMin = noStepsDurationMs / 60000;
+
+      // Scale sit confidence by duration of inactivity
+      if (noStepsMin >= 2) {
+        sitScore += 0.6;
+        signals.reasons.push('no steps ' + Math.round(noStepsMin) + 'm');
+      } else if (noStepsDurationMs >= 30000) {
+        sitScore += 0.5;
+        signals.reasons.push('no steps ' + Math.round(noStepsDurationMs / 1000) + 's');
+      } else {
+        sitScore += 0.3;
+        signals.reasons.push('no steps');
+      }
+
+      // Transition time = when steps stopped
       if (lastActive) {
         const satTransition = Math.max(lastActive.ts, state.switchedAt);
         earliestTransitionSignal = Math.min(earliestTransitionSignal, satTransition);
