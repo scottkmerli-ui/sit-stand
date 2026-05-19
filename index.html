@@ -895,7 +895,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '3.9';    // Web layer version (auto-updatable)
+const APP_VERSION = '3.10';    // Web layer version (auto-updatable)
 const APK_VERSION = '3.8';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
@@ -955,9 +955,10 @@ window.applyUpdate = function() {
   try {
     localStorage.setItem('sitstand_app_html', pendingUpdateHtml);
     localStorage.setItem('sitstand_just_updated', 'true');
-    dbg('Update saved — navigating to loader...');
-    // Navigate to loader page which will document.write() the cached version
-    window.location.href = '/';
+    // Apply update in-place (no navigation — Capacitor WebView doesn't reload well)
+    document.open();
+    document.write(pendingUpdateHtml);
+    document.close();
   } catch (e) {
     dbg('Update apply failed: ' + e.message);
   }
