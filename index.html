@@ -8,12 +8,19 @@
 (function() {
   var cached = localStorage.getItem('sitstand_app_html');
   if (cached && cached.indexOf('APP_VERSION') > -1) {
-    // Extract version from cached HTML
     var m = cached.match(/const APP_VERSION = '([^']+)'/);
     var cachedVer = m ? m[1] : '0';
-    // Only use cached if it's different from bundled (newer)
-    var bundledVer = '3.8';
-    if (cachedVer !== bundledVer && cachedVer > bundledVer) {
+    var bundledVer = '4.0';
+    // Proper semver comparison (not string compare)
+    function cmpVer(a, b) {
+      var pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+      for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+        var na = pa[i] || 0, nb = pb[i] || 0;
+        if (na > nb) return 1; if (na < nb) return -1;
+      }
+      return 0;
+    }
+    if (cachedVer !== bundledVer && cmpVer(cachedVer, bundledVer) > 0) {
       document.open();
       document.write(cached);
       document.close();
@@ -895,7 +902,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '3.10';    // Web layer version (auto-updatable)
+const APP_VERSION = '4.0';    // Web layer version (auto-updatable)
 const APK_VERSION = '3.8';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
