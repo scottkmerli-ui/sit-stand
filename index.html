@@ -3,6 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+// Auto-update loader: if we have a newer cached version, use it
+(function() {
+  var cached = localStorage.getItem('sitstand_app_html');
+  if (cached && cached.indexOf('APP_VERSION') > -1) {
+    // Extract version from cached HTML
+    var m = cached.match(/const APP_VERSION = '([^']+)'/);
+    var cachedVer = m ? m[1] : '0';
+    // Only use cached if it's different from bundled (newer)
+    var bundledVer = '3.8';
+    if (cachedVer !== bundledVer && cachedVer > bundledVer) {
+      document.open();
+      document.write(cached);
+      document.close();
+      return;
+    }
+  }
+})();
+</script>
 <title>Sit / Stand Tracker</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1a1a2e">
