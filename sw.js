@@ -1,6 +1,6 @@
 // ── Service Worker for Sit/Stand Tracker PWA ──
 
-const CACHE_NAME = 'sitstand-v6';
+const CACHE_NAME = 'sitstand-v7';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.svg', './icon-512.svg'];
 
 // Install — cache app shell
@@ -48,7 +48,7 @@ self.addEventListener('message', e => {
         actions: [
           { action: 'switch', title: data.switchLabel || '🔄 Switch' },
           { action: 'snooze5', title: '⏰ Snooze 5m' },
-          { action: 'pause', title: '⏸️ Pause' }
+          { action: 'dismiss', title: '🔄 Reset Timer' }
         ]
       });
       // Tell the page to show the overlay too
@@ -80,6 +80,8 @@ self.addEventListener('notificationclick', e => {
           client.postMessage({ type: 'DO_SNOOZE', minutes: 5 });
         } else if (action === 'pause') {
           client.postMessage({ type: 'DO_PAUSE' });
+        } else if (action === 'dismiss') {
+          client.postMessage({ type: 'DO_DISMISS' });
         } else {
           // Default tap — open the app and show the alert
           client.postMessage({ type: 'SHOW_ALERT' });

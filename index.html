@@ -540,7 +540,7 @@
       <button class="snooze-btn" onclick="snooze(30)">30m</button>
     </div>
     <button class="dismiss-btn" onclick="if (!state.paused) togglePause(); hideAlert();">⏸️ Pause Timer</button>
-    <button class="dismiss-btn" onclick="dismissAlert()">✕ Dismiss</button>
+    <button class="dismiss-btn" onclick="dismissAlert()">✕ Stay &amp; Reset Timer</button>
   </div>
 </div>
 
@@ -553,6 +553,10 @@
     <div class="progress-marker" id="progressMarker"></div>
   </div>
   <div id="snoozeIndicator" class="snooze-indicator hidden">⏰ Snoozed — next alert in <span id="snoozeCountdown">--:--</span></div>
+  <div id="pausedInfo" class="snooze-indicator hidden" style="background:rgba(127,140,141,0.15);border-color:rgba(127,140,141,0.3);color:var(--paused-color)">
+    ⏸️ Paused for <span id="pausedDuration">0:00</span>
+    <button onclick="togglePause()" style="margin-left:0.6rem;padding:0.3rem 0.8rem;font-size:0.85rem;font-weight:600;border:1px solid var(--stand-color);border-radius:6px;cursor:pointer;color:var(--stand-color);background:transparent">▶️ Resume</button>
+  </div>
   <div class="btn-row">
     <button class="switch-btn" id="switchBtn" onclick="toggleState()">Switch to Standing</button>
     <button class="pause-btn" id="pauseBtn" onclick="togglePause()">⏸️</button>
@@ -692,7 +696,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '3.4';    // Web layer version (auto-updatable)
+const APP_VERSION = '3.5';    // Web layer version (auto-updatable)
 const APK_VERSION = '3.3';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
@@ -984,13 +988,20 @@ if ('serviceWorker' in navigator) {
     if (e.data.type === 'DO_SWITCH') { hideAlert(); toggleState(); }
     if (e.data.type === 'DO_SNOOZE') { hideAlert(); snooze(e.data.minutes); }
     if (e.data.type === 'DO_PAUSE')  { hideAlert(); if (!state.paused) togglePause(); }
+    if (e.data.type === 'DO_DISMISS') { dismissAlert(); }
   });
 }
 
 function scheduleSwNotify(delayMs) {
   // Native Capacitor: schedule via AlarmManager (survives app close)
   if (isCapacitor && window._AlarmAlert) {
-    window._AlarmAlert.scheduleReminder({ delayMs: delayMs })
+    const sitting = state.mode === 'sitting';
+    window._AlarmAlert.scheduleReminder({
+      delayMs: delayMs,
+      title: sitting ? 'Time to stand!' : 'Time to sit!',
+      body: `You've been ${sitting ? 'sitting' : 'standing'} for ${currentIntervalMin()}+ ${state.testMode ? 'sec' : 'min'}`,
+      switchLabel: sitting ? 'Stand' : 'Sit'
+    })
       .then(() => dbg('Native alarm scheduled: ' + Math.round(delayMs/60000) + ' min'))
       .catch(e => dbg('scheduleReminder failed: ' + e.message));
     return;
@@ -1150,9 +1161,9 @@ function showAlert() {
           requireInteraction: true,
           vibrate: [200, 100, 200, 100, 200],
           actions: [
-            { action: 'switch', title: sitting ? '🧍 Switch' : '🪑 Switch' },
-            { action: 'snooze5', title: '⏰ 5m' },
-            { action: 'pause', title: '⏸️ Pause' }
+            { action: 'switch', title: sitting ? '🧍 I Stood Up' : '🪑 I Sat Down' },
+            { action: 'snooze5', title: '⏰ Snooze 5m' },
+            { action: 'dismiss', title: '🔄 Reset Timer' }
           ]
         });
       });
@@ -1168,12 +1179,14 @@ function showAlert() {
   if (isCapacitor && window._AlarmAlert) {
     const snoozeLabel = state.testMode ? 'Snooze 10s' : 'Snooze 5m';
     const snoozeDurationMs = state.testMode ? 10000 : 300000;
+    const switchLabel = sitting ? 'Stand Now' : 'Sit Now';
     dbg('AlarmAlert.showAlert() calling... snooze=' + snoozeLabel);
     window._AlarmAlert.showAlert({
       title: sitting ? '⏰ Time to stand!' : '⏰ Time to sit!',
       body: `You've been ${sitting ? 'sitting' : 'standing'} for ${mins}+ ${state.testMode ? 'sec' : 'min'}`,
       snoozeLabel: snoozeLabel,
-      snoozeDurationMs: snoozeDurationMs
+      snoozeDurationMs: snoozeDurationMs,
+      switchLabel: switchLabel
     }).then(() => {
       dbg('AlarmAlert.showAlert() succeeded');
     }).catch(e => {
@@ -1381,8 +1394,13 @@ function updateElapsed() {
     progressMarker.style.display = 'none';
     totalSitEl.textContent   = formatHM(state.todaySitMs);
     totalStandEl.textContent = formatHM(state.todayStandMs);
+    // Show paused duration
+    const pausedMs = Date.now() - state.pausedAt;
+    document.getElementById('pausedDuration').textContent = formatDuration(pausedMs);
+    document.getElementById('pausedInfo').classList.remove('hidden');
     return;
   }
+  document.getElementById('pausedInfo').classList.add('hidden');
 
   const ms = Date.now() - state.switchedAt;
   elapsed.textContent = formatDuration(ms);
