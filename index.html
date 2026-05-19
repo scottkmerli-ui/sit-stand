@@ -2531,11 +2531,19 @@ function getDetectionSignals() {
     : null;
   if (recentStepEntry && recentStepEntry.ts > Date.now() - 300000) {
     if (recentStepEntry.count > 5) {
-      standScore += 0.5;
-      signals.reasons.push('steps detected');
-      // Use the step record's start time as transition estimate, but cap at
-      // last known mode switch time (can't transition before current mode started)
-      const stepTransition = Math.max(recentStepEntry.ts, state.switchedAt);
+      // Check how long steps have been sustained
+      const firstActive = smartState.stepHistory.find(s => s.count > 0 && s.ts > Date.now() - 1800000);
+      const steppingSince = firstActive ? firstActive.ts : recentStepEntry.ts;
+      const steppingDurationMs = Date.now() - steppingSince;
+
+      if (steppingDurationMs >= 30000) {
+        standScore += 0.5;
+        signals.reasons.push('stepping ' + Math.round(steppingDurationMs / 1000) + 's');
+      } else {
+        standScore += 0.2;
+        signals.reasons.push('brief steps');
+      }
+      const stepTransition = Math.max(steppingSince, state.switchedAt);
       earliestTransitionSignal = Math.min(earliestTransitionSignal, stepTransition);
     } else if (recentStepEntry.count === 0) {
       // Find how long since last steps were detected
