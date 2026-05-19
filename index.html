@@ -752,14 +752,14 @@
 
     <div style="margin-bottom:0.8rem">
       <div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.4rem">Data Sources:</div>
-      <div class="smart-status" id="fitbitStatus">
+      <div class="smart-status" id="hcStatus">
         <span class="dot disconnected"></span>
-        <span>Fitbit — not connected</span>
-        <button class="smart-btn" id="fitbitConnectBtn" onclick="connectFitbit()">Connect</button>
+        <span>Health Connect -- not connected</span>
+        <button class="smart-btn" onclick="connectHealthConnect()">Connect</button>
       </div>
       <div class="smart-status" id="bleStatus">
         <span class="dot disconnected"></span>
-        <span>HR Monitor — not connected</span>
+        <span>HR Monitor -- not connected</span>
         <button class="smart-btn" id="bleConnectBtn" onclick="connectBleHr()">Pair</button>
       </div>
     </div>
@@ -777,7 +777,7 @@
     <div style="margin-top:0.6rem;font-size:0.75rem;color:var(--muted)">
       <details>
         <summary>How it works</summary>
-        <p style="margin-top:0.3rem">Steps from Fitbit + heart rate changes detect when you sit or stand. Standing raises HR ~5-15 bpm. When confident, you'll get a suggestion to confirm the switch.</p>
+        <p style="margin-top:0.3rem">Steps from Fitbit (via Health Connect) + real-time heart rate from Polar H10 (via BLE) detect when you sit or stand. Standing raises HR ~5-15 bpm. When confident, you'll get a suggestion to confirm the switch. All processing is on-device.</p>
       </details>
     </div>
   </div>
@@ -2052,22 +2052,20 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// ── Smart Detection Module ─────────────────────────────────
-const SMART_LS_KEY = 'sitstand_smart_v1';
-const FITBIT_CLIENT_ID = ''; // User must set this
-const FITBIT_REDIRECT = window.location.origin + window.location.pathname;
+// ── Smart Detection Module (Health Connect + BLE) ───────────
+const SMART_LS_KEY = 'sitstand_smart_v2';
 
 let smartState = {
   enabled: false,
-  fitbitToken: null,
-  fitbitTokenExpiry: 0,
-  fitbitRefreshToken: null,
-  fitbitClientId: '',
-  hrBaseline: null,       // average sitting HR
-  hrSamples: [],          // recent HR readings [{ts, bpm}]
-  stepHistory: [],        // [{ts, count}] from Fitbit
-  lastSuggestion: 0,      // debounce: don't re-suggest within 2min
-  suggestionCooldown: 120000
+  bleDeviceAddress: null,
+  bleDeviceName: null,
+  hrBaseline: null,
+  hrSamples: [],       // [{ts, bpm}] — from BLE real-time
+  stepHistory: [],     // [{ts, count}] — from Health Connect
+  lastSuggestion: 0,
+  suggestionCooldown: 120000,
+  hcAvailable: false,
+  hcPermissions: { steps: false, heartRate: false }
 };
 
 function loadSmart() {
@@ -2076,9 +2074,24 @@ function loadSmart() {
     if (raw) Object.assign(smartState, JSON.parse(raw));
   } catch (e) { /* ignore */ }
 }
-function saveSmart() { localStorage.setItem(SMART_LS_KEY, JSON.stringify(smartState)); }
+function saveSmart() {
+  const toSave = { ...smartState };
+  // Don't persist hrSamples (too large, ephemeral)
+  toSave.hrSamples = [];
+  localStorage.setItem(SMART_LS_KEY, JSON.stringify(toSave));
+}
 
 loadSmart();
+
+// ── Native plugin bridges ──
+const isNative = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform();
+let HealthConnect = null;
+let BleHeartRate = null;
+
+if (isNative && Capacitor.Plugins) {
+  HealthConnect = Capacitor.Plugins.HealthConnect;
+  BleHeartRate = Capacitor.Plugins.BleHeartRate;
+}
 
 // ── UI Controls ──
 function toggleSmartPanel() {
@@ -2097,247 +2110,351 @@ function updateSmartStatus() {
   const el = document.getElementById('smartStatusText');
   if (!smartState.enabled) {
     el.textContent = 'Off';
-  } else if (bleHrConnected || smartState.fitbitToken) {
-    el.textContent = '🟢 Active';
+  } else if (bleHrConnected || smartState.hcPermissions.steps) {
+    el.textContent = '\u{1F7E2} Active';
   } else {
-    el.textContent = '⚙️ No sources';
+    el.textContent = '\u2699\uFE0F No sources';
   }
 }
 
-// ── Fitbit OAuth PKCE ──
-function generateCodeVerifier() {
-  const arr = new Uint8Array(32);
-  crypto.getRandomValues(arr);
-  return btoa(String.fromCharCode(...arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-async function generateCodeChallenge(verifier) {
-  const encoded = new TextEncoder().encode(verifier);
-  const hash = await crypto.subtle.digest('SHA-256', encoded);
-  return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-async function connectFitbit() {
-  if (!smartState.fitbitClientId) {
-    const clientId = prompt('Enter your Fitbit Client ID\n(Register at dev.fitbit.com → "Register an App")\nSet OAuth redirect to: ' + FITBIT_REDIRECT);
-    if (!clientId) return;
-    smartState.fitbitClientId = clientId.trim();
-    saveSmart();
+// ── Health Connect (Steps + bonus HR) ──
+async function initHealthConnect() {
+  if (!HealthConnect) {
+    updateHcUI('unavailable');
+    return;
   }
-
-  const verifier = generateCodeVerifier();
-  sessionStorage.setItem('fitbit_verifier', verifier);
-  const challenge = await generateCodeChallenge(verifier);
-
-  const params = new URLSearchParams({
-    client_id: smartState.fitbitClientId,
-    response_type: 'code',
-    code_challenge: challenge,
-    code_challenge_method: 'S256',
-    redirect_uri: FITBIT_REDIRECT,
-    scope: 'activity heartrate',
-    expires_in: '31536000'
-  });
-
-  window.location.href = 'https://www.fitbit.com/oauth2/authorize?' + params.toString();
-}
-
-async function handleFitbitCallback() {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get('code');
-  if (!code) return;
-
-  const verifier = sessionStorage.getItem('fitbit_verifier');
-  if (!verifier) { dbg('Fitbit callback: no verifier found'); return; }
-  sessionStorage.removeItem('fitbit_verifier');
-
-  // Clear URL params
-  window.history.replaceState({}, '', window.location.pathname);
-
   try {
-    const resp = await fetch('https://api.fitbit.com/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: smartState.fitbitClientId,
-        grant_type: 'authorization_code',
-        code: code,
-        code_verifier: verifier,
-        redirect_uri: FITBIT_REDIRECT
-      })
-    });
-    const data = await resp.json();
-    if (data.access_token) {
-      smartState.fitbitToken = data.access_token;
-      smartState.fitbitRefreshToken = data.refresh_token;
-      smartState.fitbitTokenExpiry = Date.now() + (data.expires_in * 1000);
+    const { available, status } = await HealthConnect.isAvailable();
+    smartState.hcAvailable = available;
+    if (!available) {
+      updateHcUI(status === 'update_required' ? 'update_required' : 'unavailable');
+      return;
+    }
+    const perms = await HealthConnect.checkHcPermissions();
+    smartState.hcPermissions = perms;
+    updateHcUI(perms.steps ? 'connected' : 'needs_permission');
+  } catch (e) {
+    dbg('HC init error: ' + e.message);
+    updateHcUI('error');
+  }
+}
+
+async function connectHealthConnect() {
+  if (!HealthConnect) {
+    alert('Health Connect requires the native app. Please install via Google Drive.');
+    return;
+  }
+  try {
+    const { available, status } = await HealthConnect.isAvailable();
+    if (!available) {
+      if (status === 'update_required') {
+        await HealthConnect.openHealthConnectApp();
+        return;
+      }
+      alert('Health Connect is not available on this device. Requires Android 9+ with Health Connect app installed.');
+      return;
+    }
+    const result = await HealthConnect.requestHcPermissions();
+    if (result.granted) {
+      smartState.hcPermissions = { steps: true, heartRate: true };
       saveSmart();
-      dbg('Fitbit connected successfully');
-      updateFitbitUI(true);
+      updateHcUI('connected');
       startSmartDetection();
     } else {
-      dbg('Fitbit token error: ' + JSON.stringify(data));
+      updateHcUI('needs_permission');
+      dbg('HC permissions not yet granted — user sent to settings');
     }
   } catch (e) {
-    dbg('Fitbit token exchange failed: ' + e.message);
+    dbg('HC connect error: ' + e.message);
+    alert('Error connecting to Health Connect: ' + e.message);
   }
 }
 
-async function refreshFitbitToken() {
-  if (!smartState.fitbitRefreshToken) return false;
-  try {
-    const resp = await fetch('https://api.fitbit.com/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: smartState.fitbitClientId,
-        grant_type: 'refresh_token',
-        refresh_token: smartState.fitbitRefreshToken
-      })
-    });
-    const data = await resp.json();
-    if (data.access_token) {
-      smartState.fitbitToken = data.access_token;
-      smartState.fitbitRefreshToken = data.refresh_token;
-      smartState.fitbitTokenExpiry = Date.now() + (data.expires_in * 1000);
-      saveSmart();
-      return true;
-    }
-  } catch (e) { dbg('Fitbit refresh failed: ' + e.message); }
-  return false;
-}
-
-async function fitbitFetch(url) {
-  if (!smartState.fitbitToken) return null;
-  if (Date.now() > smartState.fitbitTokenExpiry - 60000) {
-    if (!await refreshFitbitToken()) {
-      updateFitbitUI(false);
-      return null;
-    }
+function updateHcUI(status) {
+  const el = document.getElementById('hcStatus');
+  if (!el) return;
+  switch (status) {
+    case 'connected':
+      el.innerHTML = '<span class="dot connected"></span><span>Health Connect -- steps \u2713</span><button class="smart-btn active" onclick="disconnectHc()">Disconnect</button>';
+      break;
+    case 'needs_permission':
+      el.innerHTML = '<span class="dot disconnected"></span><span>Health Connect -- needs permission</span><button class="smart-btn" onclick="connectHealthConnect()">Grant</button>';
+      break;
+    case 'update_required':
+      el.innerHTML = '<span class="dot disconnected"></span><span>Health Connect -- update required</span><button class="smart-btn" onclick="connectHealthConnect()">Update</button>';
+      break;
+    case 'unavailable':
+      el.innerHTML = '<span class="dot disconnected"></span><span>Health Connect -- not available</span>';
+      break;
+    default:
+      el.innerHTML = '<span class="dot disconnected"></span><span>Health Connect -- error</span><button class="smart-btn" onclick="connectHealthConnect()">Retry</button>';
   }
-  try {
-    const resp = await fetch(url, {
-      headers: { 'Authorization': 'Bearer ' + smartState.fitbitToken }
-    });
-    if (resp.status === 401) {
-      if (await refreshFitbitToken()) {
-        const retry = await fetch(url, {
-          headers: { 'Authorization': 'Bearer ' + smartState.fitbitToken }
-        });
-        return retry.ok ? retry.json() : null;
-      }
-      updateFitbitUI(false);
-      return null;
-    }
-    return resp.ok ? resp.json() : null;
-  } catch (e) { dbg('Fitbit fetch err: ' + e.message); return null; }
-}
-
-function updateFitbitUI(connected) {
-  const el = document.getElementById('fitbitStatus');
-  el.innerHTML = connected
-    ? '<span class="dot connected"></span><span>Fitbit — connected ✓</span><button class="smart-btn active" onclick="disconnectFitbit()">Disconnect</button>'
-    : '<span class="dot disconnected"></span><span>Fitbit — not connected</span><button class="smart-btn" onclick="connectFitbit()">Connect</button>';
   updateSmartStatus();
 }
 
-function disconnectFitbit() {
-  smartState.fitbitToken = null;
-  smartState.fitbitRefreshToken = null;
-  smartState.fitbitTokenExpiry = 0;
+function disconnectHc() {
+  smartState.hcPermissions = { steps: false, heartRate: false };
   saveSmart();
-  updateFitbitUI(false);
+  updateHcUI('needs_permission');
 }
 
-// ── BLE Heart Rate Monitor (Polar H10 etc.) ──
-let bleHrDevice = null;
+async function pollHealthConnect() {
+  if (!HealthConnect || !smartState.hcPermissions.steps) return;
+
+  try {
+    // Read steps from last 5 minutes
+    const stepsResult = await HealthConnect.readRecentSteps({ minutesBack: 5 });
+    if (stepsResult) {
+      smartState.stepHistory.push({
+        ts: stepsResult.earliestTime || Date.now(),
+        count: stepsResult.totalSteps || 0
+      });
+      // Keep last 30 min of history
+      smartState.stepHistory = smartState.stepHistory.filter(s => s.ts > Date.now() - 1800000);
+      document.getElementById('smSteps').textContent = stepsResult.totalSteps || 0;
+      document.getElementById('smartMetrics').classList.remove('hidden');
+      dbg('HC steps (last 5m): ' + stepsResult.totalSteps);
+    }
+
+    // Also read HR if available (bonus — from Fitbit sync)
+    if (smartState.hcPermissions.heartRate && !bleHrConnected) {
+      const hrResult = await HealthConnect.readRecentHeartRate({ minutesBack: 5 });
+      if (hrResult && hrResult.sampleCount > 0) {
+        // Add HC HR samples to our sample array (with their actual timestamps)
+        const samples = hrResult.samples || [];
+        for (const s of samples) {
+          // Avoid duplicates (check if we already have a sample within 30s)
+          const isDupe = smartState.hrSamples.some(existing => Math.abs(existing.ts - s.time) < 30000);
+          if (!isDupe) {
+            smartState.hrSamples.push({ ts: s.time, bpm: s.bpm });
+          }
+        }
+        // Keep last 10 min
+        smartState.hrSamples = smartState.hrSamples.filter(s => s.ts > Date.now() - 600000);
+        if (samples.length) {
+          const latest = samples[samples.length - 1];
+          document.getElementById('smartHrValue').textContent = latest.bpm;
+          document.getElementById('smartHrDisplay').classList.remove('hidden');
+          updateHrBaseline(latest.bpm);
+          updateSmartMetrics();
+        }
+      }
+    }
+  } catch (e) {
+    dbg('HC poll error: ' + e.message);
+  }
+
+  if (smartState.enabled) runDetection();
+}
+
+// ── BLE Heart Rate (Polar H10) ──
 let bleHrConnected = false;
-let bleHrChar = null;
+let bleHrListenerRegistered = false;
 
 async function connectBleHr() {
-  if (!navigator.bluetooth) {
-    alert('Web Bluetooth not supported. Use Chrome or Edge, or install the native app.');
+  if (!BleHeartRate) {
+    // Fallback: try Web Bluetooth (works in Chrome browser, not Capacitor WebView)
+    if (navigator.bluetooth) {
+      await connectBleHrWeb();
+      return;
+    }
+    alert('BLE Heart Rate requires the native app.');
     return;
   }
+
+  try {
+    // Check BLE availability
+    const { available } = await BleHeartRate.isAvailable();
+    if (!available) {
+      alert('Bluetooth is not available or not enabled.');
+      return;
+    }
+
+    // Check permissions
+    const perms = await BleHeartRate.checkBlePermissions();
+    if (!perms.scan || !perms.connect) {
+      await BleHeartRate.requestBlePermissions();
+      // Give user a moment, then re-check
+      setTimeout(async () => {
+        const p2 = await BleHeartRate.checkBlePermissions();
+        if (p2.scan && p2.connect) connectBleHr();
+      }, 2000);
+      return;
+    }
+
+    // If we have a saved device, try reconnecting directly
+    if (smartState.bleDeviceAddress) {
+      updateBleUI('connecting');
+      try {
+        const result = await BleHeartRate.connect({ address: smartState.bleDeviceAddress });
+        if (result.connected) {
+          bleHrConnected = true;
+          registerBleListeners();
+          updateBleUI('connected');
+          document.getElementById('smartHrDisplay').classList.remove('hidden');
+          document.getElementById('smartMetrics').classList.remove('hidden');
+          startSmartDetection();
+          dbg('BLE reconnected to ' + result.device);
+          return;
+        }
+      } catch (e) {
+        dbg('Reconnect failed, scanning: ' + e.message);
+      }
+    }
+
+    // Scan for devices
+    updateBleUI('scanning');
+    const scanResult = await BleHeartRate.scan();
+    const devices = scanResult.devices || [];
+
+    if (devices.length === 0) {
+      alert('No heart rate monitors found. Make sure your device is awake and in range.');
+      updateBleUI('disconnected');
+      return;
+    }
+
+    // If only one device, connect directly. Otherwise let user pick.
+    let target = devices[0];
+    if (devices.length > 1) {
+      const names = devices.map((d, i) => `${i + 1}. ${d.name} (${d.rssi} dBm)`).join('\n');
+      const pick = prompt('Multiple HR devices found:\n' + names + '\n\nEnter number:', '1');
+      if (!pick) { updateBleUI('disconnected'); return; }
+      target = devices[parseInt(pick) - 1] || devices[0];
+    }
+
+    // Connect
+    updateBleUI('connecting');
+    const result = await BleHeartRate.connect({ address: target.address });
+    if (result.connected) {
+      bleHrConnected = true;
+      smartState.bleDeviceAddress = target.address;
+      smartState.bleDeviceName = result.device || target.name;
+      saveSmart();
+      registerBleListeners();
+      updateBleUI('connected');
+      document.getElementById('smartHrDisplay').classList.remove('hidden');
+      document.getElementById('smartMetrics').classList.remove('hidden');
+      startSmartDetection();
+      dbg('BLE connected: ' + smartState.bleDeviceName);
+    }
+  } catch (e) {
+    dbg('BLE connect error: ' + e.message);
+    alert('BLE connection failed: ' + e.message);
+    updateBleUI('disconnected');
+  }
+}
+
+function registerBleListeners() {
+  if (bleHrListenerRegistered || !BleHeartRate) return;
+  bleHrListenerRegistered = true;
+
+  BleHeartRate.addListener('heartRate', (data) => {
+    const bpm = data.bpm;
+    const ts = data.timestamp || Date.now();
+    smartState.hrSamples.push({ ts, bpm });
+    // Keep last 10 min
+    smartState.hrSamples = smartState.hrSamples.filter(s => s.ts > Date.now() - 600000);
+    document.getElementById('smartHrValue').textContent = bpm;
+    updateHrBaseline(bpm);
+    updateSmartMetrics();
+    if (smartState.enabled) runDetection();
+  });
+
+  BleHeartRate.addListener('disconnected', () => {
+    bleHrConnected = false;
+    updateBleUI('disconnected');
+    document.getElementById('smartHrDisplay').classList.add('hidden');
+    dbg('BLE HR disconnected');
+    // Try auto-reconnect after 5s
+    setTimeout(() => {
+      if (!bleHrConnected && smartState.bleDeviceAddress && smartState.enabled) {
+        dbg('Attempting BLE auto-reconnect...');
+        connectBleHr();
+      }
+    }, 5000);
+  });
+}
+
+// Fallback: Web Bluetooth (for browser-only mode)
+let bleHrDevice = null;
+let bleHrChar = null;
+
+async function connectBleHrWeb() {
   try {
     bleHrDevice = await navigator.bluetooth.requestDevice({
       filters: [{ services: ['heart_rate'] }],
       optionalServices: ['heart_rate']
     });
-    bleHrDevice.addEventListener('gattserverdisconnected', onBleDisconnect);
+    bleHrDevice.addEventListener('gattserverdisconnected', () => {
+      bleHrConnected = false;
+      updateBleUI('disconnected');
+      document.getElementById('smartHrDisplay').classList.add('hidden');
+    });
     const server = await bleHrDevice.gatt.connect();
     const service = await server.getPrimaryService('heart_rate');
     bleHrChar = await service.getCharacteristic('heart_rate_measurement');
     await bleHrChar.startNotifications();
-    bleHrChar.addEventListener('characteristicvaluechanged', onHrReading);
+    bleHrChar.addEventListener('characteristicvaluechanged', (event) => {
+      const value = event.target.value;
+      const flags = value.getUint8(0);
+      const is16bit = flags & 0x01;
+      const bpm = is16bit ? value.getUint16(1, true) : value.getUint8(1);
+      smartState.hrSamples.push({ ts: Date.now(), bpm });
+      smartState.hrSamples = smartState.hrSamples.filter(s => s.ts > Date.now() - 600000);
+      document.getElementById('smartHrValue').textContent = bpm;
+      updateHrBaseline(bpm);
+      updateSmartMetrics();
+      if (smartState.enabled) runDetection();
+    });
     bleHrConnected = true;
-    updateBleUI(true);
-    dbg('BLE HR connected: ' + bleHrDevice.name);
+    smartState.bleDeviceName = bleHrDevice.name || 'HR Monitor';
+    updateBleUI('connected');
     document.getElementById('smartHrDisplay').classList.remove('hidden');
     document.getElementById('smartMetrics').classList.remove('hidden');
     startSmartDetection();
+    dbg('Web BLE HR connected: ' + bleHrDevice.name);
   } catch (e) {
-    dbg('BLE connect failed: ' + e.message);
+    dbg('Web BLE connect failed: ' + e.message);
     if (e.name !== 'NotFoundError') alert('BLE connection failed: ' + e.message);
   }
 }
 
-function onBleDisconnect() {
-  bleHrConnected = false;
-  updateBleUI(false);
-  dbg('BLE HR disconnected');
-  document.getElementById('smartHrDisplay').classList.add('hidden');
-}
-
-function onHrReading(event) {
-  const value = event.target.value;
-  const flags = value.getUint8(0);
-  const is16bit = flags & 0x01;
-  const bpm = is16bit ? value.getUint16(1, true) : value.getUint8(1);
-
-  // Store sample
-  const now = Date.now();
-  smartState.hrSamples.push({ ts: now, bpm: bpm });
-  // Keep last 10 minutes
-  const cutoff = now - 600000;
-  smartState.hrSamples = smartState.hrSamples.filter(s => s.ts > cutoff);
-
-  // Update UI
-  document.getElementById('smartHrValue').textContent = bpm;
-
-  // Update baseline (rolling average of samples when known sitting)
-  updateHrBaseline(bpm);
-  updateSmartMetrics();
-
-  // Run detection
-  if (smartState.enabled) runDetection();
-}
-
-function updateBleUI(connected) {
-  const el = document.getElementById('bleStatus');
-  const name = bleHrDevice ? bleHrDevice.name : 'HR Monitor';
-  el.innerHTML = connected
-    ? `<span class="dot connected"></span><span>${name} — connected ✓</span><button class="smart-btn active" onclick="disconnectBleHr()">Disconnect</button>`
-    : '<span class="dot disconnected"></span><span>HR Monitor — not connected</span><button class="smart-btn" onclick="connectBleHr()">Pair</button>';
-  updateSmartStatus();
-}
-
-function disconnectBleHr() {
-  if (bleHrDevice && bleHrDevice.gatt.connected) {
+async function disconnectBleHr() {
+  if (BleHeartRate && isNative) {
+    try { await BleHeartRate.disconnect(); } catch (e) { /* ok */ }
+  } else if (bleHrDevice && bleHrDevice.gatt.connected) {
     bleHrDevice.gatt.disconnect();
   }
   bleHrConnected = false;
-  updateBleUI(false);
+  updateBleUI('disconnected');
   document.getElementById('smartHrDisplay').classList.add('hidden');
 }
 
+function updateBleUI(status) {
+  const el = document.getElementById('bleStatus');
+  const name = smartState.bleDeviceName || 'HR Monitor';
+  switch (status) {
+    case 'connected':
+      el.innerHTML = `<span class="dot connected"></span><span>${name} -- connected \u2713</span><button class="smart-btn active" onclick="disconnectBleHr()">Disconnect</button>`;
+      break;
+    case 'scanning':
+      el.innerHTML = '<span class="dot" style="background:#f39c12"></span><span>Scanning for HR monitors...</span>';
+      break;
+    case 'connecting':
+      el.innerHTML = `<span class="dot" style="background:#f39c12"></span><span>Connecting to ${name}...</span>`;
+      break;
+    default:
+      el.innerHTML = '<span class="dot disconnected"></span><span>HR Monitor -- not connected</span><button class="smart-btn" onclick="connectBleHr()">Pair</button>';
+  }
+  updateSmartStatus();
+}
+
+// ── HR Baseline & Metrics ──
 function updateHrBaseline(bpm) {
-  // Update sitting baseline when we're confirmed sitting (user hasn't suggested otherwise)
   if (state.mode === 'sitting' && !suggestionActive) {
     if (!smartState.hrBaseline) {
       smartState.hrBaseline = bpm;
     } else {
-      // Exponential moving average (slow update)
       smartState.hrBaseline = smartState.hrBaseline * 0.95 + bpm * 0.05;
     }
   }
@@ -2347,7 +2464,6 @@ function updateSmartMetrics() {
   const samples = smartState.hrSamples;
   if (!samples.length) return;
 
-  // Recent average (last 30s)
   const recent = samples.filter(s => s.ts > Date.now() - 30000);
   const avgRecent = recent.length ? recent.reduce((a, b) => a + b.bpm, 0) / recent.length : 0;
 
@@ -2357,68 +2473,6 @@ function updateSmartMetrics() {
   document.getElementById('smBaseline').textContent = Math.round(baseline);
   document.getElementById('smDelta').textContent = (delta >= 0 ? '+' : '') + Math.round(delta);
   document.getElementById('smDelta').style.color = Math.abs(delta) > 8 ? '#3498db' : 'var(--muted)';
-}
-
-// ── Fitbit Polling ──
-let fitbitPollTimer = null;
-
-async function pollFitbit() {
-  if (!smartState.fitbitToken) return;
-
-  const today = new Date().toISOString().split('T')[0];
-
-  // Get intraday steps (1-minute resolution)
-  const stepsData = await fitbitFetch(
-    `https://api.fitbit.com/1/user/-/activities/steps/date/${today}/1d/1min.json`
-  );
-
-  if (stepsData && stepsData['activities-steps-intraday']) {
-    const dataset = stepsData['activities-steps-intraday'].dataset;
-    // Get last 5 minutes of step data
-    const now = new Date();
-    const fiveMinAgo = new Date(now - 300000);
-    const recentSteps = dataset.filter(d => {
-      const [h, m, s] = d.time.split(':').map(Number);
-      const entryTime = new Date(now);
-      entryTime.setHours(h, m, s, 0);
-      return entryTime >= fiveMinAgo && entryTime <= now;
-    });
-    const totalRecentSteps = recentSteps.reduce((sum, d) => sum + d.value, 0);
-    smartState.stepHistory.push({ ts: Date.now(), count: totalRecentSteps });
-    // Keep last 30 min
-    smartState.stepHistory = smartState.stepHistory.filter(s => s.ts > Date.now() - 1800000);
-
-    document.getElementById('smSteps').textContent = totalRecentSteps;
-    document.getElementById('smartMetrics').classList.remove('hidden');
-
-    dbg('Fitbit steps (last 5m): ' + totalRecentSteps);
-  }
-
-  // Get intraday HR (1-minute resolution)
-  const hrData = await fitbitFetch(
-    `https://api.fitbit.com/1/user/-/activities/heart/date/${today}/1d/1min.json`
-  );
-
-  if (hrData && hrData['activities-heart-intraday']) {
-    const dataset = hrData['activities-heart-intraday'].dataset;
-    if (dataset.length) {
-      // Get most recent HR readings
-      const lastFew = dataset.slice(-5);
-      const avgHr = lastFew.reduce((sum, d) => sum + d.value, 0) / lastFew.length;
-
-      // If no BLE connected, use Fitbit HR
-      if (!bleHrConnected) {
-        smartState.hrSamples.push({ ts: Date.now(), bpm: Math.round(avgHr) });
-        smartState.hrSamples = smartState.hrSamples.filter(s => s.ts > Date.now() - 600000);
-        document.getElementById('smartHrValue').textContent = Math.round(avgHr);
-        document.getElementById('smartHrDisplay').classList.remove('hidden');
-        updateHrBaseline(avgHr);
-        updateSmartMetrics();
-      }
-    }
-  }
-
-  if (smartState.enabled) runDetection();
 }
 
 // ── Detection Algorithm ──
@@ -2433,7 +2487,6 @@ function runDetection() {
   const signals = getDetectionSignals();
   updateConfidenceIndicator(signals);
 
-  // Only suggest if confidence is medium+ and detected mode differs from current
   if (signals.detectedMode && signals.detectedMode !== state.mode && signals.confidence >= 0.6) {
     showSuggestion(signals);
   }
@@ -2445,7 +2498,7 @@ function getDetectionSignals() {
   let standScore = 0;
   let earliestTransitionSignal = Date.now();
 
-  // Signal 1: Steps (from Fitbit)
+  // Signal 1: Steps (from Health Connect / Fitbit)
   const recentStepEntry = smartState.stepHistory.length
     ? smartState.stepHistory[smartState.stepHistory.length - 1]
     : null;
@@ -2453,7 +2506,6 @@ function getDetectionSignals() {
     if (recentStepEntry.count > 5) {
       standScore += 0.5;
       signals.reasons.push('steps detected');
-      // Fitbit step data timestamp represents when steps started
       earliestTransitionSignal = Math.min(earliestTransitionSignal, recentStepEntry.ts);
     } else if (recentStepEntry.count === 0) {
       sitScore += 0.3;
@@ -2472,7 +2524,6 @@ function getDetectionSignals() {
       if (delta > 8) {
         standScore += 0.5;
         signals.reasons.push('HR elevated +' + Math.round(delta));
-        // Find when HR first crossed the threshold
         const hrTransition = findHrTransitionTime(smartState.hrBaseline + 6);
         if (hrTransition) earliestTransitionSignal = Math.min(earliestTransitionSignal, hrTransition);
       } else if (delta > 4) {
@@ -2490,7 +2541,7 @@ function getDetectionSignals() {
     }
   }
 
-  // Signal 3: Time consistency — if we've been in a state for a while with matching signals
+  // Signal 3: Time consistency
   const elapsedMin = (Date.now() - state.switchedAt) / 60000;
   if (elapsedMin > 2) {
     if (state.mode === 'sitting' && standScore > sitScore) {
@@ -2517,7 +2568,6 @@ function getDetectionSignals() {
   return signals;
 }
 
-// Find when HR first crossed above a threshold (scanning backwards)
 function findHrTransitionTime(threshold) {
   const samples = smartState.hrSamples;
   for (let i = samples.length - 1; i >= 1; i--) {
@@ -2525,12 +2575,10 @@ function findHrTransitionTime(threshold) {
       return samples[i].ts;
     }
   }
-  // If all recent samples are above threshold, use the oldest one in the elevated range
   const elevated = samples.filter(s => s.bpm >= threshold);
   return elevated.length ? elevated[0].ts : null;
 }
 
-// Find when HR first dropped below a threshold
 function findHrDropTime(threshold) {
   const samples = smartState.hrSamples;
   for (let i = samples.length - 1; i >= 1; i--) {
@@ -2547,7 +2595,7 @@ function updateConfidenceIndicator(signals) {
   const iconEl = document.getElementById('detectionIcon');
   const textEl = document.getElementById('detectionText');
 
-  if (!smartState.enabled || (!bleHrConnected && !smartState.fitbitToken)) {
+  if (!smartState.enabled || (!bleHrConnected && !smartState.hcPermissions.steps)) {
     el.classList.add('hidden');
     return;
   }
@@ -2556,17 +2604,17 @@ function updateConfidenceIndicator(signals) {
 
   if (signals.confidence >= 0.7) {
     el.className = 'detection-confidence high';
-    iconEl.textContent = '📡';
+    iconEl.textContent = '\u{1F4E1}';
     textEl.textContent = signals.detectedMode === state.mode
       ? 'Confirmed ' + state.mode
       : 'Detecting change...';
   } else if (signals.confidence >= 0.4) {
     el.className = 'detection-confidence medium';
-    iconEl.textContent = '📡';
-    textEl.textContent = signals.reasons.slice(0, 2).join(' · ') || 'Monitoring...';
+    iconEl.textContent = '\u{1F4E1}';
+    textEl.textContent = signals.reasons.slice(0, 2).join(' + ') || 'Monitoring...';
   } else {
     el.className = 'detection-confidence low';
-    iconEl.textContent = '📡';
+    iconEl.textContent = '\u{1F4E1}';
     textEl.textContent = 'Monitoring...';
   }
 }
@@ -2589,9 +2637,9 @@ function showSuggestion(signals) {
   const agoStr = agoMs > 60000 ? Math.round(agoMs / 60000) + 'm ago' : Math.round(agoMs / 1000) + 's ago';
 
   if (suggestedMode === 'standing') {
-    msgEl.textContent = '🧍 Looks like you stood up' + (agoMs > 10000 ? ' ~' + agoStr : '') + ' — switch?';
+    msgEl.textContent = '\u{1F9CD} Looks like you stood up' + (agoMs > 10000 ? ' ~' + agoStr : '') + ' -- switch?';
   } else {
-    msgEl.textContent = '🪑 Looks like you sat down' + (agoMs > 10000 ? ' ~' + agoStr : '') + ' — switch?';
+    msgEl.textContent = '\u{1FA91} Looks like you sat down' + (agoMs > 10000 ? ' ~' + agoStr : '') + ' -- switch?';
   }
 
   const confLevel = signals.confidence >= 0.8 ? 'High' : signals.confidence >= 0.6 ? 'Medium' : 'Low';
@@ -2599,15 +2647,15 @@ function showSuggestion(signals) {
 
   banner.classList.remove('hidden');
 
-  // Auto-dismiss after 30 seconds if no response
+  // Auto-dismiss after 30 seconds
   setTimeout(() => {
     if (suggestionActive) dismissSuggestion();
   }, 30000);
 
-  // Also show notification if app is backgrounded
+  // Notification if backgrounded
   if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     const n = new Notification(
-      suggestedMode === 'standing' ? '🧍 Did you stand up?' : '🪑 Did you sit down?',
+      suggestedMode === 'standing' ? '\u{1F9CD} Did you stand up?' : '\u{1FA91} Did you sit down?',
       { body: `Confidence: ${confLevel}` + (agoMs > 10000 ? ` (${agoStr})` : ''), tag: 'sitstand-suggest', requireInteraction: false }
     );
     n.onclick = () => { window.focus(); };
@@ -2618,27 +2666,21 @@ function acceptSuggestion() {
   document.getElementById('suggestBanner').classList.add('hidden');
   suggestionActive = false;
   if (suggestedMode && suggestedMode !== state.mode) {
-    // Backdate the switch to the estimated transition time
     const transitionTime = suggestedTransitionTime || Date.now();
     const now = Date.now();
 
-    // Close current log entry at transition time
     if (state.log.length && !state.log[state.log.length - 1].end) {
       state.log[state.log.length - 1].end = transitionTime;
     }
 
-    // Accumulate time for the OLD mode up to transition time
     const durMs = transitionTime - state.switchedAt;
     if (durMs > 0) {
       if (state.mode === 'sitting') state.todaySitMs += durMs;
       else state.todayStandMs += durMs;
     }
 
-    // Switch mode and backdate switchedAt
     state.mode = state.mode === 'sitting' ? 'standing' : 'sitting';
     state.switchedAt = transitionTime;
-
-    // Log the new mode starting at transition time
     state.log.push({ mode: state.mode, start: transitionTime });
 
     save();
@@ -2660,29 +2702,30 @@ function dismissSuggestion() {
 
 // ── Start/Stop Detection ──
 let smartDetectionInterval = null;
+let hcPollTimer = null;
 
 function startSmartDetection() {
   if (!smartState.enabled) return;
   stopSmartDetection();
 
-  // Poll Fitbit every 2 minutes
-  if (smartState.fitbitToken) {
-    pollFitbit();
-    fitbitPollTimer = setInterval(pollFitbit, 120000);
+  // Poll Health Connect every 2 minutes for step data
+  if (smartState.hcPermissions.steps) {
+    pollHealthConnect();
+    hcPollTimer = setInterval(pollHealthConnect, 120000);
   }
 
-  // Run detection check every 10 seconds (BLE gives real-time, this catches patterns)
+  // Run detection check every 10 seconds
   smartDetectionInterval = setInterval(() => {
     if (smartState.enabled) runDetection();
   }, 10000);
 
   updateSmartStatus();
-  dbg('Smart detection started');
+  dbg('Smart detection started (HC=' + smartState.hcPermissions.steps + ', BLE=' + bleHrConnected + ')');
 }
 
 function stopSmartDetection() {
-  clearInterval(fitbitPollTimer);
-  fitbitPollTimer = null;
+  clearInterval(hcPollTimer);
+  hcPollTimer = null;
   clearInterval(smartDetectionInterval);
   smartDetectionInterval = null;
   document.getElementById('detectionConfidence').classList.add('hidden');
@@ -2692,12 +2735,21 @@ function stopSmartDetection() {
 // ── Init Smart Detection ──
 (function initSmart() {
   document.getElementById('smartEnabled').checked = smartState.enabled;
-  if (smartState.fitbitToken) updateFitbitUI(true);
-  if (smartState.enabled && smartState.fitbitToken) startSmartDetection();
+  initHealthConnect();
+  if (smartState.bleDeviceAddress) {
+    updateBleUI('disconnected'); // Show saved device name
+  }
+  if (smartState.enabled) {
+    // Auto-start after brief delay to let plugins initialize
+    setTimeout(() => {
+      startSmartDetection();
+      // Auto-reconnect BLE if we had a saved device
+      if (smartState.bleDeviceAddress && BleHeartRate) {
+        connectBleHr();
+      }
+    }, 2000);
+  }
   updateSmartStatus();
-
-  // Handle Fitbit OAuth callback
-  handleFitbitCallback();
 })();
 
 </script>
