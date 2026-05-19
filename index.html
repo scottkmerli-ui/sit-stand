@@ -2440,9 +2440,10 @@ function runDetection() {
 }
 
 function getDetectionSignals() {
-  const signals = { detectedMode: null, confidence: 0, reasons: [] };
+  const signals = { detectedMode: null, confidence: 0, reasons: [], transitionTime: null };
   let sitScore = 0;
   let standScore = 0;
+  let earliestTransitionSignal = Date.now();
 
   // Signal 1: Steps (from Fitbit)
   const recentStepEntry = smartState.stepHistory.length
@@ -2452,9 +2453,12 @@ function getDetectionSignals() {
     if (recentStepEntry.count > 5) {
       standScore += 0.5;
       signals.reasons.push('steps detected');
+      // Fitbit step data timestamp represents when steps started
+      earliestTransitionSignal = Math.min(earliestTransitionSignal, recentStepEntry.ts);
     } else if (recentStepEntry.count === 0) {
       sitScore += 0.3;
       signals.reasons.push('no steps');
+      earliestTransitionSignal = Math.min(earliestTransitionSignal, recentStepEntry.ts);
     }
   }
 
@@ -2468,12 +2472,17 @@ function getDetectionSignals() {
       if (delta > 8) {
         standScore += 0.5;
         signals.reasons.push('HR elevated +' + Math.round(delta));
+        // Find when HR first crossed the threshold
+        const hrTransition = findHrTransitionTime(smartState.hrBaseline + 6);
+        if (hrTransition) earliestTransitionSignal = Math.min(earliestTransitionSignal, hrTransition);
       } else if (delta > 4) {
         standScore += 0.25;
         signals.reasons.push('HR slightly up');
       } else if (delta < -3) {
         sitScore += 0.3;
         signals.reasons.push('HR dropped');
+        const hrTransition = findHrDropTime(smartState.hrBaseline - 2);
+        if (hrTransition) earliestTransitionSignal = Math.min(earliestTransitionSignal, hrTransition);
       } else if (Math.abs(delta) <= 3) {
         sitScore += 0.2;
         signals.reasons.push('HR at baseline');
@@ -2484,9 +2493,8 @@ function getDetectionSignals() {
   // Signal 3: Time consistency — if we've been in a state for a while with matching signals
   const elapsedMin = (Date.now() - state.switchedAt) / 60000;
   if (elapsedMin > 2) {
-    // More time = more confidence in current state unless signals contradict
     if (state.mode === 'sitting' && standScore > sitScore) {
-      standScore += 0.1; // slight boost for transition signals
+      standScore += 0.1;
     } else if (state.mode === 'standing' && sitScore > standScore) {
       sitScore += 0.1;
     }
@@ -2496,15 +2504,42 @@ function getDetectionSignals() {
   if (standScore > sitScore && standScore >= 0.4) {
     signals.detectedMode = 'standing';
     signals.confidence = Math.min(1, standScore);
+    signals.transitionTime = earliestTransitionSignal;
   } else if (sitScore > standScore && sitScore >= 0.4) {
     signals.detectedMode = 'sitting';
     signals.confidence = Math.min(1, sitScore);
+    signals.transitionTime = earliestTransitionSignal;
   } else {
-    signals.detectedMode = state.mode; // no change detected
+    signals.detectedMode = state.mode;
     signals.confidence = 0.3;
   }
 
   return signals;
+}
+
+// Find when HR first crossed above a threshold (scanning backwards)
+function findHrTransitionTime(threshold) {
+  const samples = smartState.hrSamples;
+  for (let i = samples.length - 1; i >= 1; i--) {
+    if (samples[i].bpm >= threshold && samples[i - 1].bpm < threshold) {
+      return samples[i].ts;
+    }
+  }
+  // If all recent samples are above threshold, use the oldest one in the elevated range
+  const elevated = samples.filter(s => s.bpm >= threshold);
+  return elevated.length ? elevated[0].ts : null;
+}
+
+// Find when HR first dropped below a threshold
+function findHrDropTime(threshold) {
+  const samples = smartState.hrSamples;
+  for (let i = samples.length - 1; i >= 1; i--) {
+    if (samples[i].bpm <= threshold && samples[i - 1].bpm > threshold) {
+      return samples[i].ts;
+    }
+  }
+  const dropped = samples.filter(s => s.bpm <= threshold);
+  return dropped.length ? dropped[0].ts : null;
 }
 
 function updateConfidenceIndicator(signals) {
@@ -2537,9 +2572,12 @@ function updateConfidenceIndicator(signals) {
 }
 
 // ── Suggestion UI ──
+let suggestedTransitionTime = null;
+
 function showSuggestion(signals) {
   suggestionActive = true;
   suggestedMode = signals.detectedMode;
+  suggestedTransitionTime = signals.transitionTime || Date.now();
   smartState.lastSuggestion = Date.now();
   saveSmart();
 
@@ -2547,10 +2585,13 @@ function showSuggestion(signals) {
   const msgEl = document.getElementById('suggestMsg');
   const confEl = document.getElementById('suggestConf');
 
+  const agoMs = Date.now() - suggestedTransitionTime;
+  const agoStr = agoMs > 60000 ? Math.round(agoMs / 60000) + 'm ago' : Math.round(agoMs / 1000) + 's ago';
+
   if (suggestedMode === 'standing') {
-    msgEl.textContent = '🧍 Looks like you stood up — switch?';
+    msgEl.textContent = '🧍 Looks like you stood up' + (agoMs > 10000 ? ' ~' + agoStr : '') + ' — switch?';
   } else {
-    msgEl.textContent = '🪑 Looks like you sat down — switch?';
+    msgEl.textContent = '🪑 Looks like you sat down' + (agoMs > 10000 ? ' ~' + agoStr : '') + ' — switch?';
   }
 
   const confLevel = signals.confidence >= 0.8 ? 'High' : signals.confidence >= 0.6 ? 'Medium' : 'Low';
@@ -2567,7 +2608,7 @@ function showSuggestion(signals) {
   if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     const n = new Notification(
       suggestedMode === 'standing' ? '🧍 Did you stand up?' : '🪑 Did you sit down?',
-      { body: `Confidence: ${confLevel}`, tag: 'sitstand-suggest', requireInteraction: false }
+      { body: `Confidence: ${confLevel}` + (agoMs > 10000 ? ` (${agoStr})` : ''), tag: 'sitstand-suggest', requireInteraction: false }
     );
     n.onclick = () => { window.focus(); };
   }
@@ -2577,15 +2618,44 @@ function acceptSuggestion() {
   document.getElementById('suggestBanner').classList.add('hidden');
   suggestionActive = false;
   if (suggestedMode && suggestedMode !== state.mode) {
-    toggleState();
+    // Backdate the switch to the estimated transition time
+    const transitionTime = suggestedTransitionTime || Date.now();
+    const now = Date.now();
+
+    // Close current log entry at transition time
+    if (state.log.length && !state.log[state.log.length - 1].end) {
+      state.log[state.log.length - 1].end = transitionTime;
+    }
+
+    // Accumulate time for the OLD mode up to transition time
+    const durMs = transitionTime - state.switchedAt;
+    if (durMs > 0) {
+      if (state.mode === 'sitting') state.todaySitMs += durMs;
+      else state.todayStandMs += durMs;
+    }
+
+    // Switch mode and backdate switchedAt
+    state.mode = state.mode === 'sitting' ? 'standing' : 'sitting';
+    state.switchedAt = transitionTime;
+
+    // Log the new mode starting at transition time
+    state.log.push({ mode: state.mode, start: transitionTime });
+
+    save();
+    render();
+    resetReminderTimer();
+
+    dbg('Accepted suggestion: switched to ' + state.mode + ', backdated by ' + Math.round((now - transitionTime) / 1000) + 's');
   }
   suggestedMode = null;
+  suggestedTransitionTime = null;
 }
 
 function dismissSuggestion() {
   document.getElementById('suggestBanner').classList.add('hidden');
   suggestionActive = false;
   suggestedMode = null;
+  suggestedTransitionTime = null;
 }
 
 // ── Start/Stop Detection ──
