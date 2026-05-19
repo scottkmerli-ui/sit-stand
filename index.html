@@ -2155,14 +2155,14 @@ async function connectHealthConnect() {
       return;
     }
     const result = await HealthConnect.requestHcPermissions();
-    if (result.granted) {
-      smartState.hcPermissions = { steps: true, heartRate: true };
+    if (result.granted || result.steps) {
+      smartState.hcPermissions = { steps: result.steps !== false, heartRate: result.heartRate || false };
       saveSmart();
       updateHcUI('connected');
       startSmartDetection();
     } else {
       updateHcUI('needs_permission');
-      dbg('HC permissions not yet granted — user sent to settings');
+      dbg('HC permissions not granted');
     }
   } catch (e) {
     dbg('HC connect error: ' + e.message);
