@@ -2525,11 +2525,21 @@ function getDetectionSignals() {
     if (recentStepEntry.count > 5) {
       standScore += 0.5;
       signals.reasons.push('steps detected');
-      earliestTransitionSignal = Math.min(earliestTransitionSignal, recentStepEntry.ts);
+      // Use the step record's start time as transition estimate, but cap at
+      // last known mode switch time (can't transition before current mode started)
+      const stepTransition = Math.max(recentStepEntry.ts, state.switchedAt);
+      earliestTransitionSignal = Math.min(earliestTransitionSignal, stepTransition);
     } else if (recentStepEntry.count === 0) {
       sitScore += 0.3;
       signals.reasons.push('no steps');
-      earliestTransitionSignal = Math.min(earliestTransitionSignal, recentStepEntry.ts);
+      // For "sat down" transition, estimate from when steps stopped
+      // Use midpoint between last active steps and now as best guess
+      const lastActive = smartState.stepHistory.slice().reverse()
+        .find(s => s.count > 0 && s.ts > Date.now() - 1800000);
+      if (lastActive) {
+        const satTransition = Math.max(lastActive.ts, state.switchedAt);
+        earliestTransitionSignal = Math.min(earliestTransitionSignal, satTransition);
+      }
     }
   }
 
