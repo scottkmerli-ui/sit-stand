@@ -500,6 +500,125 @@
   .summary-box .lbl { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; }
   .summary-box.sit  .val { color: var(--sit-color); }
   .summary-box.stand .val { color: var(--stand-color); }
+
+  /* Detection confidence indicator */
+  .detection-confidence {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.8rem;
+    border-radius: 12px;
+    margin: 0.3rem 0;
+    transition: background .3s, color .3s;
+  }
+  .detection-confidence.high { background: rgba(46,204,113,0.15); color: var(--stand-color); }
+  .detection-confidence.medium { background: rgba(243,156,18,0.15); color: #f39c12; }
+  .detection-confidence.low { background: rgba(136,136,136,0.1); color: var(--muted); }
+  .detection-confidence.suggest { background: rgba(52,152,219,0.2); color: #3498db; animation: pulse-suggest 1.5s ease-in-out infinite; }
+  @keyframes pulse-suggest { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+  /* Smart Detection section */
+  .smart-section {
+    margin-top: 1.2rem;
+    width: 100%;
+    max-width: 460px;
+  }
+  .smart-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--card);
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .smart-toggle:hover { background: #1a2744; }
+  .smart-body {
+    background: var(--card);
+    border-radius: 0 0 10px 10px;
+    padding: 0.8rem 1rem;
+    margin-top: -4px;
+  }
+  .smart-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+    font-size: 0.85rem;
+  }
+  .smart-status .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .smart-status .dot.connected { background: var(--stand-color); }
+  .smart-status .dot.disconnected { background: var(--sit-color); }
+  .smart-btn {
+    padding: 0.4rem 0.9rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    border: 1px solid #555;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text);
+    background: transparent;
+    transition: border-color .15s, background .15s;
+    margin-right: 0.4rem;
+  }
+  .smart-btn:hover { border-color: #aaa; background: rgba(255,255,255,0.05); }
+  .smart-btn.active { border-color: var(--stand-color); color: var(--stand-color); }
+  .smart-hr-display {
+    text-align: center;
+    font-size: 1.6rem;
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+    margin: 0.5rem 0;
+    color: var(--text);
+  }
+  .smart-hr-display .bpm-label { font-size: 0.7rem; color: var(--muted); }
+  .smart-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    text-align: center;
+  }
+  .smart-metrics .sm-val { font-size: 1rem; font-weight: 600; }
+  .smart-metrics .sm-lbl { color: var(--muted); }
+
+  /* Suggestion banner */
+  .suggest-banner {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #2c3e50;
+    padding: 1rem 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    z-index: 9998;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+    animation: slide-up 0.3s ease;
+  }
+  @keyframes slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .suggest-banner .suggest-msg { flex: 1; font-size: 0.9rem; }
+  .suggest-banner .suggest-conf { font-size: 0.7rem; color: var(--muted); }
+  .suggest-banner button {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .suggest-banner .suggest-yes { background: var(--stand-color); color: #fff; }
+  .suggest-banner .suggest-no { background: transparent; border: 1px solid #555; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -547,6 +666,10 @@
 <div id="card" class="status-card sitting">
   <div class="state-icon" id="icon">🪑</div>
   <div class="state-label" id="label">Sitting</div>
+  <div id="detectionConfidence" class="detection-confidence hidden">
+    <span id="detectionIcon">📡</span>
+    <span id="detectionText">Detecting...</span>
+  </div>
   <div class="elapsed" id="elapsed">00:00</div>
   <div class="progress-wrap">
     <div class="progress-bar" id="progressBar"></div>
@@ -611,6 +734,63 @@
     </div>
     <div class="week-grid" id="weekGrid"></div>
   </div>
+</div>
+
+<!-- Smart Detection -->
+<div class="smart-section">
+  <div class="smart-toggle" onclick="toggleSmartPanel()">
+    <span>📡 Smart Detection</span>
+    <span id="smartStatusText">Off</span>
+  </div>
+  <div id="smartBody" class="smart-body hidden">
+    <div class="settings-row" style="margin-bottom:0.6rem">
+      <label>
+        <input type="checkbox" id="smartEnabled" onchange="saveSmartSettings()">
+        Enable auto-detection
+      </label>
+    </div>
+
+    <div style="margin-bottom:0.8rem">
+      <div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.4rem">Data Sources:</div>
+      <div class="smart-status" id="fitbitStatus">
+        <span class="dot disconnected"></span>
+        <span>Fitbit — not connected</span>
+        <button class="smart-btn" id="fitbitConnectBtn" onclick="connectFitbit()">Connect</button>
+      </div>
+      <div class="smart-status" id="bleStatus">
+        <span class="dot disconnected"></span>
+        <span>HR Monitor — not connected</span>
+        <button class="smart-btn" id="bleConnectBtn" onclick="connectBleHr()">Pair</button>
+      </div>
+    </div>
+
+    <div id="smartHrDisplay" class="smart-hr-display hidden">
+      <span id="smartHrValue">--</span> <span class="bpm-label">bpm</span>
+    </div>
+
+    <div id="smartMetrics" class="smart-metrics hidden">
+      <div><div class="sm-val" id="smSteps">--</div><div class="sm-lbl">Steps/5m</div></div>
+      <div><div class="sm-val" id="smBaseline">--</div><div class="sm-lbl">Sit HR</div></div>
+      <div><div class="sm-val" id="smDelta">--</div><div class="sm-lbl">HR Delta</div></div>
+    </div>
+
+    <div style="margin-top:0.6rem;font-size:0.75rem;color:var(--muted)">
+      <details>
+        <summary>How it works</summary>
+        <p style="margin-top:0.3rem">Steps from Fitbit + heart rate changes detect when you sit or stand. Standing raises HR ~5-15 bpm. When confident, you'll get a suggestion to confirm the switch.</p>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- Suggestion banner (shown when detection suggests a switch) -->
+<div id="suggestBanner" class="suggest-banner hidden">
+  <div>
+    <div class="suggest-msg" id="suggestMsg">🧍 Looks like you stood up</div>
+    <div class="suggest-conf" id="suggestConf">Confidence: High (steps + HR)</div>
+  </div>
+  <button class="suggest-yes" onclick="acceptSuggestion()">✓ Yes</button>
+  <button class="suggest-no" onclick="dismissSuggestion()">✕ No</button>
 </div>
 
 <div class="summary">
@@ -696,7 +876,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '3.5';    // Web layer version (auto-updatable)
+const APP_VERSION = '3.6';    // Web layer version (auto-updatable)
 const APK_VERSION = '3.3';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
@@ -1871,6 +2051,584 @@ document.addEventListener('visibilitychange', () => {
     }
   }
 });
+
+// ── Smart Detection Module ─────────────────────────────────
+const SMART_LS_KEY = 'sitstand_smart_v1';
+const FITBIT_CLIENT_ID = ''; // User must set this
+const FITBIT_REDIRECT = window.location.origin + window.location.pathname;
+
+let smartState = {
+  enabled: false,
+  fitbitToken: null,
+  fitbitTokenExpiry: 0,
+  fitbitRefreshToken: null,
+  fitbitClientId: '',
+  hrBaseline: null,       // average sitting HR
+  hrSamples: [],          // recent HR readings [{ts, bpm}]
+  stepHistory: [],        // [{ts, count}] from Fitbit
+  lastSuggestion: 0,      // debounce: don't re-suggest within 2min
+  suggestionCooldown: 120000
+};
+
+function loadSmart() {
+  try {
+    const raw = localStorage.getItem(SMART_LS_KEY);
+    if (raw) Object.assign(smartState, JSON.parse(raw));
+  } catch (e) { /* ignore */ }
+}
+function saveSmart() { localStorage.setItem(SMART_LS_KEY, JSON.stringify(smartState)); }
+
+loadSmart();
+
+// ── UI Controls ──
+function toggleSmartPanel() {
+  document.getElementById('smartBody').classList.toggle('hidden');
+}
+
+function saveSmartSettings() {
+  smartState.enabled = document.getElementById('smartEnabled').checked;
+  saveSmart();
+  updateSmartStatus();
+  if (smartState.enabled) startSmartDetection();
+  else stopSmartDetection();
+}
+
+function updateSmartStatus() {
+  const el = document.getElementById('smartStatusText');
+  if (!smartState.enabled) {
+    el.textContent = 'Off';
+  } else if (bleHrConnected || smartState.fitbitToken) {
+    el.textContent = '🟢 Active';
+  } else {
+    el.textContent = '⚙️ No sources';
+  }
+}
+
+// ── Fitbit OAuth PKCE ──
+function generateCodeVerifier() {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode(...arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function generateCodeChallenge(verifier) {
+  const encoded = new TextEncoder().encode(verifier);
+  const hash = await crypto.subtle.digest('SHA-256', encoded);
+  return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function connectFitbit() {
+  if (!smartState.fitbitClientId) {
+    const clientId = prompt('Enter your Fitbit Client ID\n(Register at dev.fitbit.com → "Register an App")\nSet OAuth redirect to: ' + FITBIT_REDIRECT);
+    if (!clientId) return;
+    smartState.fitbitClientId = clientId.trim();
+    saveSmart();
+  }
+
+  const verifier = generateCodeVerifier();
+  sessionStorage.setItem('fitbit_verifier', verifier);
+  const challenge = await generateCodeChallenge(verifier);
+
+  const params = new URLSearchParams({
+    client_id: smartState.fitbitClientId,
+    response_type: 'code',
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    redirect_uri: FITBIT_REDIRECT,
+    scope: 'activity heartrate',
+    expires_in: '31536000'
+  });
+
+  window.location.href = 'https://www.fitbit.com/oauth2/authorize?' + params.toString();
+}
+
+async function handleFitbitCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) return;
+
+  const verifier = sessionStorage.getItem('fitbit_verifier');
+  if (!verifier) { dbg('Fitbit callback: no verifier found'); return; }
+  sessionStorage.removeItem('fitbit_verifier');
+
+  // Clear URL params
+  window.history.replaceState({}, '', window.location.pathname);
+
+  try {
+    const resp = await fetch('https://api.fitbit.com/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: smartState.fitbitClientId,
+        grant_type: 'authorization_code',
+        code: code,
+        code_verifier: verifier,
+        redirect_uri: FITBIT_REDIRECT
+      })
+    });
+    const data = await resp.json();
+    if (data.access_token) {
+      smartState.fitbitToken = data.access_token;
+      smartState.fitbitRefreshToken = data.refresh_token;
+      smartState.fitbitTokenExpiry = Date.now() + (data.expires_in * 1000);
+      saveSmart();
+      dbg('Fitbit connected successfully');
+      updateFitbitUI(true);
+      startSmartDetection();
+    } else {
+      dbg('Fitbit token error: ' + JSON.stringify(data));
+    }
+  } catch (e) {
+    dbg('Fitbit token exchange failed: ' + e.message);
+  }
+}
+
+async function refreshFitbitToken() {
+  if (!smartState.fitbitRefreshToken) return false;
+  try {
+    const resp = await fetch('https://api.fitbit.com/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: smartState.fitbitClientId,
+        grant_type: 'refresh_token',
+        refresh_token: smartState.fitbitRefreshToken
+      })
+    });
+    const data = await resp.json();
+    if (data.access_token) {
+      smartState.fitbitToken = data.access_token;
+      smartState.fitbitRefreshToken = data.refresh_token;
+      smartState.fitbitTokenExpiry = Date.now() + (data.expires_in * 1000);
+      saveSmart();
+      return true;
+    }
+  } catch (e) { dbg('Fitbit refresh failed: ' + e.message); }
+  return false;
+}
+
+async function fitbitFetch(url) {
+  if (!smartState.fitbitToken) return null;
+  if (Date.now() > smartState.fitbitTokenExpiry - 60000) {
+    if (!await refreshFitbitToken()) {
+      updateFitbitUI(false);
+      return null;
+    }
+  }
+  try {
+    const resp = await fetch(url, {
+      headers: { 'Authorization': 'Bearer ' + smartState.fitbitToken }
+    });
+    if (resp.status === 401) {
+      if (await refreshFitbitToken()) {
+        const retry = await fetch(url, {
+          headers: { 'Authorization': 'Bearer ' + smartState.fitbitToken }
+        });
+        return retry.ok ? retry.json() : null;
+      }
+      updateFitbitUI(false);
+      return null;
+    }
+    return resp.ok ? resp.json() : null;
+  } catch (e) { dbg('Fitbit fetch err: ' + e.message); return null; }
+}
+
+function updateFitbitUI(connected) {
+  const el = document.getElementById('fitbitStatus');
+  el.innerHTML = connected
+    ? '<span class="dot connected"></span><span>Fitbit — connected ✓</span><button class="smart-btn active" onclick="disconnectFitbit()">Disconnect</button>'
+    : '<span class="dot disconnected"></span><span>Fitbit — not connected</span><button class="smart-btn" onclick="connectFitbit()">Connect</button>';
+  updateSmartStatus();
+}
+
+function disconnectFitbit() {
+  smartState.fitbitToken = null;
+  smartState.fitbitRefreshToken = null;
+  smartState.fitbitTokenExpiry = 0;
+  saveSmart();
+  updateFitbitUI(false);
+}
+
+// ── BLE Heart Rate Monitor (Polar H10 etc.) ──
+let bleHrDevice = null;
+let bleHrConnected = false;
+let bleHrChar = null;
+
+async function connectBleHr() {
+  if (!navigator.bluetooth) {
+    alert('Web Bluetooth not supported. Use Chrome or Edge, or install the native app.');
+    return;
+  }
+  try {
+    bleHrDevice = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ['heart_rate'] }],
+      optionalServices: ['heart_rate']
+    });
+    bleHrDevice.addEventListener('gattserverdisconnected', onBleDisconnect);
+    const server = await bleHrDevice.gatt.connect();
+    const service = await server.getPrimaryService('heart_rate');
+    bleHrChar = await service.getCharacteristic('heart_rate_measurement');
+    await bleHrChar.startNotifications();
+    bleHrChar.addEventListener('characteristicvaluechanged', onHrReading);
+    bleHrConnected = true;
+    updateBleUI(true);
+    dbg('BLE HR connected: ' + bleHrDevice.name);
+    document.getElementById('smartHrDisplay').classList.remove('hidden');
+    document.getElementById('smartMetrics').classList.remove('hidden');
+    startSmartDetection();
+  } catch (e) {
+    dbg('BLE connect failed: ' + e.message);
+    if (e.name !== 'NotFoundError') alert('BLE connection failed: ' + e.message);
+  }
+}
+
+function onBleDisconnect() {
+  bleHrConnected = false;
+  updateBleUI(false);
+  dbg('BLE HR disconnected');
+  document.getElementById('smartHrDisplay').classList.add('hidden');
+}
+
+function onHrReading(event) {
+  const value = event.target.value;
+  const flags = value.getUint8(0);
+  const is16bit = flags & 0x01;
+  const bpm = is16bit ? value.getUint16(1, true) : value.getUint8(1);
+
+  // Store sample
+  const now = Date.now();
+  smartState.hrSamples.push({ ts: now, bpm: bpm });
+  // Keep last 10 minutes
+  const cutoff = now - 600000;
+  smartState.hrSamples = smartState.hrSamples.filter(s => s.ts > cutoff);
+
+  // Update UI
+  document.getElementById('smartHrValue').textContent = bpm;
+
+  // Update baseline (rolling average of samples when known sitting)
+  updateHrBaseline(bpm);
+  updateSmartMetrics();
+
+  // Run detection
+  if (smartState.enabled) runDetection();
+}
+
+function updateBleUI(connected) {
+  const el = document.getElementById('bleStatus');
+  const name = bleHrDevice ? bleHrDevice.name : 'HR Monitor';
+  el.innerHTML = connected
+    ? `<span class="dot connected"></span><span>${name} — connected ✓</span><button class="smart-btn active" onclick="disconnectBleHr()">Disconnect</button>`
+    : '<span class="dot disconnected"></span><span>HR Monitor — not connected</span><button class="smart-btn" onclick="connectBleHr()">Pair</button>';
+  updateSmartStatus();
+}
+
+function disconnectBleHr() {
+  if (bleHrDevice && bleHrDevice.gatt.connected) {
+    bleHrDevice.gatt.disconnect();
+  }
+  bleHrConnected = false;
+  updateBleUI(false);
+  document.getElementById('smartHrDisplay').classList.add('hidden');
+}
+
+function updateHrBaseline(bpm) {
+  // Update sitting baseline when we're confirmed sitting (user hasn't suggested otherwise)
+  if (state.mode === 'sitting' && !suggestionActive) {
+    if (!smartState.hrBaseline) {
+      smartState.hrBaseline = bpm;
+    } else {
+      // Exponential moving average (slow update)
+      smartState.hrBaseline = smartState.hrBaseline * 0.95 + bpm * 0.05;
+    }
+  }
+}
+
+function updateSmartMetrics() {
+  const samples = smartState.hrSamples;
+  if (!samples.length) return;
+
+  // Recent average (last 30s)
+  const recent = samples.filter(s => s.ts > Date.now() - 30000);
+  const avgRecent = recent.length ? recent.reduce((a, b) => a + b.bpm, 0) / recent.length : 0;
+
+  const baseline = smartState.hrBaseline || avgRecent;
+  const delta = avgRecent - baseline;
+
+  document.getElementById('smBaseline').textContent = Math.round(baseline);
+  document.getElementById('smDelta').textContent = (delta >= 0 ? '+' : '') + Math.round(delta);
+  document.getElementById('smDelta').style.color = Math.abs(delta) > 8 ? '#3498db' : 'var(--muted)';
+}
+
+// ── Fitbit Polling ──
+let fitbitPollTimer = null;
+
+async function pollFitbit() {
+  if (!smartState.fitbitToken) return;
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // Get intraday steps (1-minute resolution)
+  const stepsData = await fitbitFetch(
+    `https://api.fitbit.com/1/user/-/activities/steps/date/${today}/1d/1min.json`
+  );
+
+  if (stepsData && stepsData['activities-steps-intraday']) {
+    const dataset = stepsData['activities-steps-intraday'].dataset;
+    // Get last 5 minutes of step data
+    const now = new Date();
+    const fiveMinAgo = new Date(now - 300000);
+    const recentSteps = dataset.filter(d => {
+      const [h, m, s] = d.time.split(':').map(Number);
+      const entryTime = new Date(now);
+      entryTime.setHours(h, m, s, 0);
+      return entryTime >= fiveMinAgo && entryTime <= now;
+    });
+    const totalRecentSteps = recentSteps.reduce((sum, d) => sum + d.value, 0);
+    smartState.stepHistory.push({ ts: Date.now(), count: totalRecentSteps });
+    // Keep last 30 min
+    smartState.stepHistory = smartState.stepHistory.filter(s => s.ts > Date.now() - 1800000);
+
+    document.getElementById('smSteps').textContent = totalRecentSteps;
+    document.getElementById('smartMetrics').classList.remove('hidden');
+
+    dbg('Fitbit steps (last 5m): ' + totalRecentSteps);
+  }
+
+  // Get intraday HR (1-minute resolution)
+  const hrData = await fitbitFetch(
+    `https://api.fitbit.com/1/user/-/activities/heart/date/${today}/1d/1min.json`
+  );
+
+  if (hrData && hrData['activities-heart-intraday']) {
+    const dataset = hrData['activities-heart-intraday'].dataset;
+    if (dataset.length) {
+      // Get most recent HR readings
+      const lastFew = dataset.slice(-5);
+      const avgHr = lastFew.reduce((sum, d) => sum + d.value, 0) / lastFew.length;
+
+      // If no BLE connected, use Fitbit HR
+      if (!bleHrConnected) {
+        smartState.hrSamples.push({ ts: Date.now(), bpm: Math.round(avgHr) });
+        smartState.hrSamples = smartState.hrSamples.filter(s => s.ts > Date.now() - 600000);
+        document.getElementById('smartHrValue').textContent = Math.round(avgHr);
+        document.getElementById('smartHrDisplay').classList.remove('hidden');
+        updateHrBaseline(avgHr);
+        updateSmartMetrics();
+      }
+    }
+  }
+
+  if (smartState.enabled) runDetection();
+}
+
+// ── Detection Algorithm ──
+let suggestionActive = false;
+let suggestedMode = null;
+
+function runDetection() {
+  if (!smartState.enabled || state.paused) return;
+  if (Date.now() - smartState.lastSuggestion < smartState.suggestionCooldown) return;
+  if (suggestionActive || alertActive) return;
+
+  const signals = getDetectionSignals();
+  updateConfidenceIndicator(signals);
+
+  // Only suggest if confidence is medium+ and detected mode differs from current
+  if (signals.detectedMode && signals.detectedMode !== state.mode && signals.confidence >= 0.6) {
+    showSuggestion(signals);
+  }
+}
+
+function getDetectionSignals() {
+  const signals = { detectedMode: null, confidence: 0, reasons: [] };
+  let sitScore = 0;
+  let standScore = 0;
+
+  // Signal 1: Steps (from Fitbit)
+  const recentStepEntry = smartState.stepHistory.length
+    ? smartState.stepHistory[smartState.stepHistory.length - 1]
+    : null;
+  if (recentStepEntry && recentStepEntry.ts > Date.now() - 300000) {
+    if (recentStepEntry.count > 5) {
+      standScore += 0.5;
+      signals.reasons.push('steps detected');
+    } else if (recentStepEntry.count === 0) {
+      sitScore += 0.3;
+      signals.reasons.push('no steps');
+    }
+  }
+
+  // Signal 2: Heart rate delta from baseline
+  if (smartState.hrBaseline && smartState.hrSamples.length >= 3) {
+    const recent = smartState.hrSamples.filter(s => s.ts > Date.now() - 30000);
+    if (recent.length >= 2) {
+      const avgRecent = recent.reduce((a, b) => a + b.bpm, 0) / recent.length;
+      const delta = avgRecent - smartState.hrBaseline;
+
+      if (delta > 8) {
+        standScore += 0.5;
+        signals.reasons.push('HR elevated +' + Math.round(delta));
+      } else if (delta > 4) {
+        standScore += 0.25;
+        signals.reasons.push('HR slightly up');
+      } else if (delta < -3) {
+        sitScore += 0.3;
+        signals.reasons.push('HR dropped');
+      } else if (Math.abs(delta) <= 3) {
+        sitScore += 0.2;
+        signals.reasons.push('HR at baseline');
+      }
+    }
+  }
+
+  // Signal 3: Time consistency — if we've been in a state for a while with matching signals
+  const elapsedMin = (Date.now() - state.switchedAt) / 60000;
+  if (elapsedMin > 2) {
+    // More time = more confidence in current state unless signals contradict
+    if (state.mode === 'sitting' && standScore > sitScore) {
+      standScore += 0.1; // slight boost for transition signals
+    } else if (state.mode === 'standing' && sitScore > standScore) {
+      sitScore += 0.1;
+    }
+  }
+
+  // Determine detected mode
+  if (standScore > sitScore && standScore >= 0.4) {
+    signals.detectedMode = 'standing';
+    signals.confidence = Math.min(1, standScore);
+  } else if (sitScore > standScore && sitScore >= 0.4) {
+    signals.detectedMode = 'sitting';
+    signals.confidence = Math.min(1, sitScore);
+  } else {
+    signals.detectedMode = state.mode; // no change detected
+    signals.confidence = 0.3;
+  }
+
+  return signals;
+}
+
+function updateConfidenceIndicator(signals) {
+  const el = document.getElementById('detectionConfidence');
+  const iconEl = document.getElementById('detectionIcon');
+  const textEl = document.getElementById('detectionText');
+
+  if (!smartState.enabled || (!bleHrConnected && !smartState.fitbitToken)) {
+    el.classList.add('hidden');
+    return;
+  }
+
+  el.classList.remove('hidden');
+
+  if (signals.confidence >= 0.7) {
+    el.className = 'detection-confidence high';
+    iconEl.textContent = '📡';
+    textEl.textContent = signals.detectedMode === state.mode
+      ? 'Confirmed ' + state.mode
+      : 'Detecting change...';
+  } else if (signals.confidence >= 0.4) {
+    el.className = 'detection-confidence medium';
+    iconEl.textContent = '📡';
+    textEl.textContent = signals.reasons.slice(0, 2).join(' · ') || 'Monitoring...';
+  } else {
+    el.className = 'detection-confidence low';
+    iconEl.textContent = '📡';
+    textEl.textContent = 'Monitoring...';
+  }
+}
+
+// ── Suggestion UI ──
+function showSuggestion(signals) {
+  suggestionActive = true;
+  suggestedMode = signals.detectedMode;
+  smartState.lastSuggestion = Date.now();
+  saveSmart();
+
+  const banner = document.getElementById('suggestBanner');
+  const msgEl = document.getElementById('suggestMsg');
+  const confEl = document.getElementById('suggestConf');
+
+  if (suggestedMode === 'standing') {
+    msgEl.textContent = '🧍 Looks like you stood up — switch?';
+  } else {
+    msgEl.textContent = '🪑 Looks like you sat down — switch?';
+  }
+
+  const confLevel = signals.confidence >= 0.8 ? 'High' : signals.confidence >= 0.6 ? 'Medium' : 'Low';
+  confEl.textContent = `Confidence: ${confLevel} (${signals.reasons.join(' + ')})`;
+
+  banner.classList.remove('hidden');
+
+  // Auto-dismiss after 30 seconds if no response
+  setTimeout(() => {
+    if (suggestionActive) dismissSuggestion();
+  }, 30000);
+
+  // Also show notification if app is backgrounded
+  if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    const n = new Notification(
+      suggestedMode === 'standing' ? '🧍 Did you stand up?' : '🪑 Did you sit down?',
+      { body: `Confidence: ${confLevel}`, tag: 'sitstand-suggest', requireInteraction: false }
+    );
+    n.onclick = () => { window.focus(); };
+  }
+}
+
+function acceptSuggestion() {
+  document.getElementById('suggestBanner').classList.add('hidden');
+  suggestionActive = false;
+  if (suggestedMode && suggestedMode !== state.mode) {
+    toggleState();
+  }
+  suggestedMode = null;
+}
+
+function dismissSuggestion() {
+  document.getElementById('suggestBanner').classList.add('hidden');
+  suggestionActive = false;
+  suggestedMode = null;
+}
+
+// ── Start/Stop Detection ──
+let smartDetectionInterval = null;
+
+function startSmartDetection() {
+  if (!smartState.enabled) return;
+  stopSmartDetection();
+
+  // Poll Fitbit every 2 minutes
+  if (smartState.fitbitToken) {
+    pollFitbit();
+    fitbitPollTimer = setInterval(pollFitbit, 120000);
+  }
+
+  // Run detection check every 10 seconds (BLE gives real-time, this catches patterns)
+  smartDetectionInterval = setInterval(() => {
+    if (smartState.enabled) runDetection();
+  }, 10000);
+
+  updateSmartStatus();
+  dbg('Smart detection started');
+}
+
+function stopSmartDetection() {
+  clearInterval(fitbitPollTimer);
+  fitbitPollTimer = null;
+  clearInterval(smartDetectionInterval);
+  smartDetectionInterval = null;
+  document.getElementById('detectionConfidence').classList.add('hidden');
+  updateSmartStatus();
+}
+
+// ── Init Smart Detection ──
+(function initSmart() {
+  document.getElementById('smartEnabled').checked = smartState.enabled;
+  if (smartState.fitbitToken) updateFitbitUI(true);
+  if (smartState.enabled && smartState.fitbitToken) startSmartDetection();
+  updateSmartStatus();
+
+  // Handle Fitbit OAuth callback
+  handleFitbitCallback();
+})();
 
 </script>
 </body>
