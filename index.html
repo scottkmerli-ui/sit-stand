@@ -2160,13 +2160,11 @@ async function initHealthConnect() {
 
 async function connectHealthConnect() {
   if (!HealthConnect) {
-    alert('DEBUG: HealthConnect plugin not found');
+    alert('Health Connect requires the native app. Please install via Google Drive.');
     return;
   }
   try {
-    alert('DEBUG: calling isAvailable...');
     const { available, status } = await HealthConnect.isAvailable();
-    alert('DEBUG: available=' + available + ' status=' + status);
     if (!available) {
       if (status === 'update_required') {
         await HealthConnect.openHealthConnectApp();
@@ -2175,9 +2173,7 @@ async function connectHealthConnect() {
       alert('Health Connect is not available on this device. Requires Android 9+ with Health Connect app installed.');
       return;
     }
-    alert('DEBUG: calling requestHcPermissions...');
     const result = await HealthConnect.requestHcPermissions();
-    alert('DEBUG: result=' + JSON.stringify(result));
     if (result.granted || result.steps) {
       smartState.hcPermissions = { steps: result.steps !== false, heartRate: result.heartRate || false };
       saveSmart();
@@ -2188,7 +2184,8 @@ async function connectHealthConnect() {
       dbg('HC permissions not granted');
     }
   } catch (e) {
-    alert('DEBUG ERROR: ' + e.message);
+    dbg('HC connect error: ' + e.message);
+    alert('Error connecting to Health Connect: ' + e.message);
   }
 }
 
