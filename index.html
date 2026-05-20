@@ -880,7 +880,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '4.3';    // Web layer version (auto-updatable)
+const APP_VERSION = '4.4';    // Web layer version (auto-updatable)
 const APK_VERSION = '4.3';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
@@ -1889,10 +1889,20 @@ if (isCapacitor) {
     try {
       CapLocalNotifications.addListener('localNotificationActionPerformed', (action) => {
         const actionId = action.actionId;
+        dbg('Notification action: ' + actionId);
         if (actionId === 'switch') { hideAlert(); toggleState(); }
         else if (actionId === 'snooze5') { hideAlert(); snooze(5); }
         else if (actionId === 'pause') { hideAlert(); if (!state.paused) togglePause(); }
-        else if (actionId === 'accept_suggest') { acceptSuggestion(); }
+        else if (actionId === 'accept_suggest') {
+          // Recover suggestedMode from notification extra (in case JS state was lost)
+          const extra = action.notification && action.notification.extra;
+          if (!suggestedMode && extra && extra.suggestedMode) {
+            suggestedMode = extra.suggestedMode;
+            suggestedTransitionTime = extra.transitionTime || Date.now();
+            dbg('Recovered suggestedMode from notification extra: ' + suggestedMode);
+          }
+          acceptSuggestion();
+        }
         else if (actionId === 'dismiss_suggest') { dismissSuggestion(); }
       });
       dbg('Notification listener added');
@@ -2067,6 +2077,10 @@ let smartState = {
   hrBaseline: null,
   hrSamples: [],       // [{ts, bpm}] — from BLE real-time
   stepHistory: [],     // [{ts, count}] — from Health Connect
+  steppingSince: null, // timestamp when continuous stepping started (persists across polls)
+  noStepsSince: null,  // timestamp when continuous inactivity started
+  consecutiveZeroPolls: 0,  // how many polls in a row showed 0 steps
+  consecutiveStepPolls: 0,  // how many polls in a row showed steps > 0
   lastSuggestion: 0,
   suggestionCooldown: 120000,
   hcAvailable: false,
@@ -2203,6 +2217,11 @@ function disconnectHc() {
   updateHcUI('needs_permission');
 }
 
+function formatDur(seconds) {
+  if (seconds >= 60) return Math.round(seconds / 60) + 'm';
+  return seconds + 's';
+}
+
 async function pollHealthConnect() {
   if (!HealthConnect || !smartState.hcPermissions.steps) return;
 
@@ -2210,29 +2229,71 @@ async function pollHealthConnect() {
     // Read steps from last 5 minutes
     const stepsResult = await HealthConnect.readRecentSteps({ minutesBack: 5 });
     if (stepsResult) {
+      const totalSteps = stepsResult.totalSteps || 0;
+      const records = stepsResult.entries ? stepsResult.entries.length : 0;
+
+      // Track contiguous activity/inactivity periods
+      if (totalSteps > 5) {
+        smartState.consecutiveStepPolls++;
+        smartState.consecutiveZeroPolls = 0;
+        // Set steppingSince to HC's earliestTime (actual step start) or keep existing if already tracking
+        if (!smartState.steppingSince) {
+          smartState.steppingSince = stepsResult.earliestTime || Date.now();
+          dbg('Stepping started: ' + new Date(smartState.steppingSince).toLocaleTimeString());
+        } else if (stepsResult.earliestTime && stepsResult.earliestTime < smartState.steppingSince) {
+          // HC has older data than we thought — backdate
+          smartState.steppingSince = stepsResult.earliestTime;
+          dbg('Stepping backdated to: ' + new Date(smartState.steppingSince).toLocaleTimeString());
+        }
+        smartState.noStepsSince = null;
+      } else {
+        smartState.consecutiveZeroPolls++;
+        smartState.consecutiveStepPolls = 0;
+        // Only clear steppingSince after 2+ consecutive zero polls (avoids gaps in Fitbit sync)
+        if (smartState.consecutiveZeroPolls >= 2) {
+          if (smartState.steppingSince) {
+            dbg('Stepping ended after ' + Math.round((Date.now() - smartState.steppingSince) / 1000) + 's');
+          }
+          smartState.steppingSince = null;
+        }
+        if (!smartState.noStepsSince) {
+          smartState.noStepsSince = Date.now();
+          dbg('Inactivity started');
+        }
+      }
+
       smartState.stepHistory.push({
         ts: stepsResult.earliestTime || Date.now(),
-        count: stepsResult.totalSteps || 0
+        count: totalSteps
       });
       // Keep last 30 min of history
       smartState.stepHistory = smartState.stepHistory.filter(s => s.ts > Date.now() - 1800000);
+
       const stepEl = document.getElementById('smSteps');
-      const records = stepsResult.entries ? stepsResult.entries.length : 0;
-      stepEl.textContent = (stepsResult.totalSteps || 0) + ' (' + records + ' rec)';
+      const steppingDur = smartState.steppingSince ? Math.round((Date.now() - smartState.steppingSince) / 1000) : 0;
+      const inactiveDur = smartState.noStepsSince ? Math.round((Date.now() - smartState.noStepsSince) / 1000) : 0;
+      if (records === 0) {
+        stepEl.textContent = 'no data from HC' + (inactiveDur > 0 ? ' (inactive ' + formatDur(inactiveDur) + ')' : '');
+      } else if (totalSteps === 0) {
+        stepEl.textContent = '0 steps' + (inactiveDur > 0 ? ' (inactive ' + formatDur(inactiveDur) + ')' : ' (' + records + ' rec)');
+      } else {
+        stepEl.textContent = totalSteps + ' steps' + (steppingDur > 0 ? ' (walking ' + formatDur(steppingDur) + ')' : ' (' + records + ' rec)');
+      }
       const now = new Date();
       document.getElementById('smStepsLbl').textContent = 'Steps/5m @' + now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
       document.getElementById('smartMetrics').classList.remove('hidden');
       // Detailed debug: show each record's time range and source
       let detail = 'HC poll: total=' + stepsResult.totalSteps + ', records=' + records;
+      detail += ' | stepping=' + (smartState.steppingSince ? formatDur(steppingDur) : 'no');
+      detail += ' inactive=' + (smartState.noStepsSince ? formatDur(inactiveDur) : 'no');
       if (stepsResult.entries && stepsResult.entries.length > 0) {
         for (const e of stepsResult.entries) {
           const ago = Math.round((Date.now() - e.startTime) / 1000);
           detail += ' | ' + e.count + ' steps ' + ago + 's ago (' + (e.dataOrigin || '?') + ')';
         }
-      } else {
-        detail += ' | NO RECORDS returned from HC';
       }
       dbg(detail);
+      saveSmart();
     } else {
       dbg('HC poll: null result (plugin call failed?)');
     }
@@ -2519,52 +2580,37 @@ function getDetectionSignals() {
   let standScore = 0;
   let earliestTransitionSignal = Date.now();
 
-  // Signal 1: Steps (from Health Connect / Fitbit)
-  const recentStepEntry = smartState.stepHistory.length
-    ? smartState.stepHistory[smartState.stepHistory.length - 1]
-    : null;
-  if (recentStepEntry && recentStepEntry.ts > Date.now() - 300000) {
-    if (recentStepEntry.count > 5) {
-      // Check how long steps have been sustained
-      const firstActive = smartState.stepHistory.find(s => s.count > 0 && s.ts > Date.now() - 1800000);
-      const steppingSince = firstActive ? firstActive.ts : recentStepEntry.ts;
-      const steppingDurationMs = Date.now() - steppingSince;
-
-      if (steppingDurationMs >= 30000) {
-        standScore += 0.5;
-        signals.reasons.push('stepping ' + Math.round(steppingDurationMs / 1000) + 's');
-      } else {
-        standScore += 0.2;
-        signals.reasons.push('brief steps');
-      }
-      const stepTransition = Math.max(steppingSince, state.switchedAt);
-      earliestTransitionSignal = Math.min(earliestTransitionSignal, stepTransition);
-    } else if (recentStepEntry.count === 0) {
-      // Find how long since last steps were detected
-      const lastActive = smartState.stepHistory.slice().reverse()
-        .find(s => s.count > 0 && s.ts > Date.now() - 1800000);
-      const noStepsSince = lastActive ? lastActive.ts : (smartState.stepHistory[0] ? smartState.stepHistory[0].ts : Date.now());
-      const noStepsDurationMs = Date.now() - noStepsSince;
-      const noStepsMin = noStepsDurationMs / 60000;
-
-      // Scale sit confidence by duration of inactivity
-      if (noStepsMin >= 2) {
-        sitScore += 0.6;
-        signals.reasons.push('no steps ' + Math.round(noStepsMin) + 'm');
-      } else if (noStepsDurationMs >= 30000) {
-        sitScore += 0.5;
-        signals.reasons.push('no steps ' + Math.round(noStepsDurationMs / 1000) + 's');
-      } else {
-        sitScore += 0.3;
-        signals.reasons.push('no steps');
-      }
-
-      // Transition time = when steps stopped
-      if (lastActive) {
-        const satTransition = Math.max(lastActive.ts, state.switchedAt);
-        earliestTransitionSignal = Math.min(earliestTransitionSignal, satTransition);
-      }
+  // Signal 1: Steps (from Health Connect / Fitbit) — use contiguous tracking
+  if (smartState.steppingSince) {
+    const steppingDurationMs = Date.now() - smartState.steppingSince;
+    if (steppingDurationMs >= 60000) {
+      standScore += 0.7;
+      signals.reasons.push('walking ' + formatDur(Math.round(steppingDurationMs / 1000)));
+    } else if (steppingDurationMs >= 30000) {
+      standScore += 0.5;
+      signals.reasons.push('walking ' + Math.round(steppingDurationMs / 1000) + 's');
+    } else {
+      standScore += 0.2;
+      signals.reasons.push('brief steps');
     }
+    const stepTransition = Math.max(smartState.steppingSince, state.switchedAt);
+    earliestTransitionSignal = Math.min(earliestTransitionSignal, stepTransition);
+  } else if (smartState.noStepsSince) {
+    const noStepsDurationMs = Date.now() - smartState.noStepsSince;
+    const noStepsMin = noStepsDurationMs / 60000;
+
+    if (noStepsMin >= 2) {
+      sitScore += 0.6;
+      signals.reasons.push('inactive ' + Math.round(noStepsMin) + 'm');
+    } else if (noStepsDurationMs >= 30000) {
+      sitScore += 0.5;
+      signals.reasons.push('inactive ' + Math.round(noStepsDurationMs / 1000) + 's');
+    } else {
+      sitScore += 0.3;
+      signals.reasons.push('inactive');
+    }
+    const sitTransition = Math.max(smartState.noStepsSince, state.switchedAt);
+    earliestTransitionSignal = Math.min(earliestTransitionSignal, sitTransition);
   }
 
   // Signal 2: Heart rate delta from baseline
@@ -2716,7 +2762,8 @@ function showSuggestion(signals) {
         body: body,
         actionTypeId: 'SUGGEST_ACTIONS',
         ongoing: false,
-        sound: 'default'
+        sound: 'default',
+        extra: { suggestedMode: suggestedMode, transitionTime: suggestedTransitionTime }
       }]
     }).catch(e => dbg('suggest notif err: ' + e.message));
   }
