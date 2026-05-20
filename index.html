@@ -1871,11 +1871,17 @@ if (isCapacitor) {
 
     try {
       CapLocalNotifications.registerActionTypes({
-        types: [{ id: 'SITSTAND_ACTIONS', actions: [
-          { id: 'switch', title: '🔄 Switch' },
-          { id: 'snooze5', title: '⏰ 5m' },
-          { id: 'pause', title: '⏸️ Pause' }
-        ]}]
+        types: [
+          { id: 'SITSTAND_ACTIONS', actions: [
+            { id: 'switch', title: '🔄 Switch' },
+            { id: 'snooze5', title: '⏰ 5m' },
+            { id: 'pause', title: '⏸️ Pause' }
+          ]},
+          { id: 'SUGGEST_ACTIONS', actions: [
+            { id: 'accept_suggest', title: '✅ Yes, Switch' },
+            { id: 'dismiss_suggest', title: '❌ No' }
+          ]}
+        ]
       });
       dbg('Action types registered');
     } catch (e) { dbg('registerActionTypes err: ' + e.message); }
@@ -1886,6 +1892,8 @@ if (isCapacitor) {
         if (actionId === 'switch') { hideAlert(); toggleState(); }
         else if (actionId === 'snooze5') { hideAlert(); snooze(5); }
         else if (actionId === 'pause') { hideAlert(); if (!state.paused) togglePause(); }
+        else if (actionId === 'accept_suggest') { acceptSuggestion(); }
+        else if (actionId === 'dismiss_suggest') { dismissSuggestion(); }
       });
       dbg('Notification listener added');
     } catch (e) { dbg('addListener err: ' + e.message); }
@@ -2692,18 +2700,25 @@ function showSuggestion(signals) {
 
   banner.classList.remove('hidden');
 
-  // Auto-dismiss after 30 seconds
+  // Auto-dismiss after 60 seconds
   setTimeout(() => {
     if (suggestionActive) dismissSuggestion();
-  }, 30000);
+  }, 60000);
 
-  // Notification if backgrounded
-  if (document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-    const n = new Notification(
-      suggestedMode === 'standing' ? '\u{1F9CD} Did you stand up?' : '\u{1FA91} Did you sit down?',
-      { body: `Confidence: ${confLevel}` + (agoMs > 10000 ? ` (${agoStr})` : ''), tag: 'sitstand-suggest', requireInteraction: false }
-    );
-    n.onclick = () => { window.focus(); };
+  // Fire native notification (works when backgrounded or screen off)
+  if (CapLocalNotifications) {
+    const title = suggestedMode === 'standing' ? '\u{1F9CD} Did you stand up?' : '\u{1FA91} Did you sit down?';
+    const body = `Confidence: ${confLevel}` + (agoMs > 10000 ? ` (~${agoStr})` : '') + ' -- tap to switch';
+    CapLocalNotifications.schedule({
+      notifications: [{
+        id: 9999,
+        title: title,
+        body: body,
+        actionTypeId: 'SUGGEST_ACTIONS',
+        ongoing: false,
+        sound: 'default'
+      }]
+    }).catch(e => dbg('suggest notif err: ' + e.message));
   }
 }
 
