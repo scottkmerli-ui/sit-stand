@@ -4,30 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>
-// Auto-update loader: if we have a newer cached version, use it
-(function() {
-  var cached = localStorage.getItem('sitstand_app_html');
-  if (cached && cached.indexOf('APP_VERSION') > -1) {
-    var m = cached.match(/const APP_VERSION = '([^']+)'/);
-    var cachedVer = m ? m[1] : '0';
-    var bundledVer = '4.0';
-    // Proper semver comparison (not string compare)
-    function cmpVer(a, b) {
-      var pa = a.split('.').map(Number), pb = b.split('.').map(Number);
-      for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
-        var na = pa[i] || 0, nb = pb[i] || 0;
-        if (na > nb) return 1; if (na < nb) return -1;
-      }
-      return 0;
-    }
-    if (cachedVer !== bundledVer && cmpVer(cachedVer, bundledVer) > 0) {
-      document.open();
-      document.write(cached);
-      document.close();
-      return;
-    }
-  }
-})();
+// Note: Auto-update via localStorage disabled in Capacitor (breaks native bridge).
+// Updates require new APK install.
 </script>
 <title>Sit / Stand Tracker</title>
 <link rel="manifest" href="manifest.json">
@@ -898,12 +876,12 @@
   <button onclick="document.getElementById('updateBanner').classList.add('hidden')" style="margin-left:0.3rem;padding:0.2rem 0.5rem;background:transparent;border:1px solid rgba(255,255,255,0.5);color:white;border-radius:4px;cursor:pointer;font-size:0.75rem">✕</button>
 </div>
 
-<div id="app-version-display" style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v2.7</div>
+<div id="app-version-display" style="text-align:center;margin-top:1.5rem;font-size:0.7rem;color:#555">v4.1</div>
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '4.1';    // Web layer version (auto-updatable)
-const APK_VERSION = '3.8';    // Native layer version (manual APK install required)
+const APP_VERSION = '4.2';    // Web layer version (auto-updatable)
+const APK_VERSION = '4.2';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
 let pendingUpdateHtml = null;
@@ -958,17 +936,9 @@ function compareVersions(a, b) {
 }
 
 window.applyUpdate = function() {
-  if (!pendingUpdateHtml) return;
-  try {
-    localStorage.setItem('sitstand_app_html', pendingUpdateHtml);
-    localStorage.setItem('sitstand_just_updated', 'true');
-    // Apply update in-place (no navigation — Capacitor WebView doesn't reload well)
-    document.open();
-    document.write(pendingUpdateHtml);
-    document.close();
-  } catch (e) {
-    dbg('Update apply failed: ' + e.message);
-  }
+  // In Capacitor, we can't hot-swap HTML (kills native bridge).
+  // Just notify the user a new APK is needed.
+  alert('Update downloaded. Please install the latest APK from Google Drive to get this update.');
 };
 
 // On load: show toast if we just applied an update
