@@ -795,7 +795,7 @@
     </div>
 
     <div id="smartMetrics" class="smart-metrics hidden">
-      <div><div class="sm-val" id="smSteps">--</div><div class="sm-lbl">Steps/5m</div></div>
+      <div><div class="sm-val" id="smSteps">--</div><div class="sm-lbl" id="smStepsLbl">Steps/5m</div></div>
       <div><div class="sm-val" id="smBaseline">--</div><div class="sm-lbl">Sit HR</div></div>
       <div><div class="sm-val" id="smDelta">--</div><div class="sm-lbl">HR Delta</div></div>
     </div>
@@ -2238,9 +2238,25 @@ async function pollHealthConnect() {
       });
       // Keep last 30 min of history
       smartState.stepHistory = smartState.stepHistory.filter(s => s.ts > Date.now() - 1800000);
-      document.getElementById('smSteps').textContent = stepsResult.totalSteps || 0;
+      const stepEl = document.getElementById('smSteps');
+      const records = stepsResult.entries ? stepsResult.entries.length : 0;
+      stepEl.textContent = (stepsResult.totalSteps || 0) + ' (' + records + ' rec)';
+      const now = new Date();
+      document.getElementById('smStepsLbl').textContent = 'Steps/5m @' + now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
       document.getElementById('smartMetrics').classList.remove('hidden');
-      dbg('HC steps (last 5m): ' + stepsResult.totalSteps);
+      // Detailed debug: show each record's time range and source
+      let detail = 'HC poll: total=' + stepsResult.totalSteps + ', records=' + records;
+      if (stepsResult.entries && stepsResult.entries.length > 0) {
+        for (const e of stepsResult.entries) {
+          const ago = Math.round((Date.now() - e.startTime) / 1000);
+          detail += ' | ' + e.count + ' steps ' + ago + 's ago (' + (e.dataOrigin || '?') + ')';
+        }
+      } else {
+        detail += ' | NO RECORDS returned from HC';
+      }
+      dbg(detail);
+    } else {
+      dbg('HC poll: null result (plugin call failed?)');
     }
 
     // Also read HR if available (bonus — from Fitbit sync)
