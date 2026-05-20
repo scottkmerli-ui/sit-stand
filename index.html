@@ -2756,7 +2756,7 @@ function startSmartDetection() {
   // Poll Health Connect every 2 minutes for step data
   if (smartState.hcPermissions.steps) {
     pollHealthConnect();
-    hcPollTimer = setInterval(pollHealthConnect, 120000);
+    hcPollTimer = setInterval(pollHealthConnect, 30000);
   }
 
   // Run detection check every 10 seconds
