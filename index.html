@@ -897,7 +897,7 @@
 
 <script>
 // ── Version & Auto-Update ──────────────────────────────────
-const APP_VERSION = '4.5';    // Web layer version (auto-updatable)
+const APP_VERSION = '4.6';    // Web layer version (auto-updatable)
 const APK_VERSION = '4.3';    // Native layer version (manual APK install required)
 const UPDATE_URL = 'https://scottkmerli-ui.github.io/sit-stand/';
 const VERSION_URL = UPDATE_URL + 'version.json';
@@ -1017,6 +1017,10 @@ function sigLog(type, event, detail) {
   signalLog.push(entry);
   saveSigLog();
   renderSigLog();
+  // Also log to native service if available
+  if (type === 'manual' && StepDetection) {
+    StepDetection.addManualLog({ event: event, detail: detail || '' }).catch(() => {});
+  }
 }
 
 function renderSigLog() {
@@ -1032,11 +1036,23 @@ function renderSigLog() {
   el.scrollTop = el.scrollHeight;
 }
 
-function exportSigLog() {
-  const text = JSON.stringify(signalLog, null, 2);
+async function exportSigLog() {
+  let allLogs = [...signalLog];
+  // Merge native service logs if available
+  if (StepDetection) {
+    try {
+      const native = await StepDetection.getSignalLog();
+      if (native.log) {
+        const nativeLogs = JSON.parse(native.log);
+        allLogs = allLogs.concat(nativeLogs);
+        allLogs.sort((a, b) => a.t - b.t);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  const text = JSON.stringify(allLogs, null, 2);
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => {
-      alert('Copied ' + signalLog.length + ' log entries to clipboard');
+      alert('Copied ' + allLogs.length + ' log entries to clipboard');
     }).catch(() => fallbackCopy(text));
   } else {
     fallbackCopy(text);
@@ -1049,11 +1065,22 @@ function fallbackCopy(text) {
   ta.select();
   document.execCommand('copy');
   document.body.removeChild(ta);
-  alert('Copied ' + signalLog.length + ' entries');
+  alert('Copied to clipboard');
 }
 
-function downloadSigLog() {
-  const text = JSON.stringify(signalLog, null, 2);
+async function downloadSigLog() {
+  let allLogs = [...signalLog];
+  if (StepDetection) {
+    try {
+      const native = await StepDetection.getSignalLog();
+      if (native.log) {
+        const nativeLogs = JSON.parse(native.log);
+        allLogs = allLogs.concat(nativeLogs);
+        allLogs.sort((a, b) => a.t - b.t);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  const text = JSON.stringify(allLogs, null, 2);
   const blob = new Blob([text], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1067,6 +1094,7 @@ function clearSigLog() {
   if (!confirm('Clear all signal log entries?')) return;
   signalLog = [];
   saveSigLog();
+  if (StepDetection) StepDetection.clearSignalLog().catch(() => {});
   renderSigLog();
 }
 
@@ -1599,6 +1627,9 @@ function toggleState() {
   state.log.push({ mode: state.mode, start: now });
 
   sigLog('action', 'manual_switch', 'switched to ' + state.mode);
+  if (StepDetection && nativeDetectionActive) {
+    StepDetection.updateMode({ mode: state.mode, switchedAt: state.switchedAt }).catch(e => dbg('updateMode err: ' + e.message));
+  }
 
   save();
   render();
@@ -2913,6 +2944,9 @@ function acceptSuggestion() {
     const backdatedBy = Math.round((now - transitionTime) / 1000);
     dbg('Accepted suggestion: switched to ' + state.mode + ', backdated by ' + backdatedBy + 's');
     sigLog('action', 'accept_suggest', 'switched to ' + state.mode + ' (backdated ' + backdatedBy + 's)');
+    if (StepDetection && nativeDetectionActive) {
+      StepDetection.updateMode({ mode: state.mode, switchedAt: state.switchedAt }).catch(e => dbg('updateMode err: ' + e.message));
+    }
   }
   suggestedMode = null;
   suggestedTransitionTime = null;
@@ -2929,24 +2963,97 @@ function dismissSuggestion() {
 // ── Start/Stop Detection ──
 let smartDetectionInterval = null;
 let hcPollTimer = null;
+let StepDetection = null;
+let nativeDetectionActive = false;
+
+if (isNative && Capacitor.Plugins) {
+  StepDetection = Capacitor.Plugins.StepDetection;
+}
 
 function startSmartDetection() {
   if (!smartState.enabled) return;
   stopSmartDetection();
 
-  // Poll Health Connect every 2 minutes for step data
+  if (StepDetection && smartState.hcPermissions.steps) {
+    // Use native background service for reliable polling
+    StepDetection.start({ mode: state.mode, switchedAt: state.switchedAt })
+      .then(() => {
+        nativeDetectionActive = true;
+        dbg('Native StepDetection service started');
+        // Poll service state every 10s to update UI
+        smartDetectionInterval = setInterval(syncFromNativeService, 10000);
+        syncFromNativeService();
+      })
+      .catch(e => {
+        dbg('Native detection failed, falling back to JS: ' + e.message);
+        startJsDetection();
+      });
+  } else {
+    startJsDetection();
+  }
+
+  updateSmartStatus();
+  dbg('Smart detection started (HC=' + smartState.hcPermissions.steps + ', BLE=' + bleHrConnected + ', native=' + !!StepDetection + ')');
+}
+
+function startJsDetection() {
+  // Fallback: JS-based polling (unreliable when backgrounded)
   if (smartState.hcPermissions.steps) {
     pollHealthConnect();
     hcPollTimer = setInterval(pollHealthConnect, 30000);
   }
-
-  // Run detection check every 10 seconds
   smartDetectionInterval = setInterval(() => {
     if (smartState.enabled) runDetection();
   }, 10000);
+}
 
-  updateSmartStatus();
-  dbg('Smart detection started (HC=' + smartState.hcPermissions.steps + ', BLE=' + bleHrConnected + ')');
+async function syncFromNativeService() {
+  if (!StepDetection) return;
+  try {
+    const serviceState = await StepDetection.getState();
+    
+    // Update stepping/inactive display from service
+    const steppingDur = serviceState.steppingSince ? Math.round((Date.now() - serviceState.steppingSince) / 1000) : 0;
+    const inactiveDur = serviceState.noStepsSince ? Math.round((Date.now() - serviceState.noStepsSince) / 1000) : 0;
+    
+    const stepEl = document.getElementById('smSteps');
+    if (stepEl) {
+      if (steppingDur > 0) stepEl.textContent = 'walking ' + formatDur(steppingDur);
+      else if (inactiveDur > 0) stepEl.textContent = 'inactive ' + formatDur(inactiveDur);
+      else stepEl.textContent = 'monitoring...';
+    }
+    document.getElementById('smartMetrics').classList.remove('hidden');
+
+    // Check if service accepted a suggestion (user tapped notification while app was bg)
+    if (serviceState.appMode && serviceState.appMode !== state.mode && serviceState.switchedAt > state.switchedAt) {
+      dbg('Service switched mode to ' + serviceState.appMode + ' — syncing');
+      state.mode = serviceState.appMode;
+      state.switchedAt = serviceState.switchedAt;
+      state.log.push({ mode: state.mode, start: state.switchedAt });
+      save();
+      render();
+      resetReminderTimer();
+    }
+
+    // Update detection confidence indicator from service poll
+    smartState.steppingSince = serviceState.steppingSince || null;
+    smartState.noStepsSince = serviceState.noStepsSince || null;
+    
+    // Parse last poll result for step display
+    if (serviceState.lastPollResult) {
+      try {
+        const poll = JSON.parse(serviceState.lastPollResult);
+        const now = new Date();
+        document.getElementById('smStepsLbl').textContent = 'Steps/5m @' + now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
+      } catch(e) {}
+    }
+
+    // Run local detection signals for UI indicator only
+    const signals = getDetectionSignals();
+    updateConfidenceIndicator(signals);
+  } catch (e) {
+    dbg('syncFromNative err: ' + e.message);
+  }
 }
 
 function stopSmartDetection() {
@@ -2954,6 +3061,12 @@ function stopSmartDetection() {
   hcPollTimer = null;
   clearInterval(smartDetectionInterval);
   smartDetectionInterval = null;
+  
+  if (nativeDetectionActive && StepDetection) {
+    StepDetection.stop().catch(e => dbg('stop native err: ' + e.message));
+    nativeDetectionActive = false;
+  }
+  
   document.getElementById('detectionConfidence').classList.add('hidden');
   updateSmartStatus();
 }
