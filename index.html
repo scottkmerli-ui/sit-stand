@@ -870,6 +870,23 @@
   <button onclick="document.getElementById('debugLog').textContent=''" style="margin-top:0.3rem;font-size:0.7rem">Clear</button>
 </details>
 
+<details style="margin:1rem;font-size:0.75rem;color:#888">
+  <summary>📊 Signal Log (exportable)</summary>
+  <div style="margin-top:0.5rem;display:flex;gap:0.3rem;flex-wrap:wrap">
+    <button onclick="sigLog('manual','standing_now','User marked: standing')" style="font-size:0.7rem;padding:0.3rem 0.5rem;background:#27ae60;color:white;border:none;border-radius:4px">🧍 I'm Standing</button>
+    <button onclick="sigLog('manual','sitting_now','User marked: sitting')" style="font-size:0.7rem;padding:0.3rem 0.5rem;background:#e67e22;color:white;border:none;border-radius:4px">🪑 I'm Sitting</button>
+    <button onclick="sigLog('manual','walking_now','User marked: walking')" style="font-size:0.7rem;padding:0.3rem 0.5rem;background:#3498db;color:white;border:none;border-radius:4px">🚶 Walking</button>
+    <button onclick="sigLog('manual','note',prompt('Note:'))" style="font-size:0.7rem;padding:0.3rem 0.5rem;background:#555;color:white;border:none;border-radius:4px">📝 Note</button>
+  </div>
+  <div id="sigLogDisplay" style="max-height:200px;overflow-y:auto;font-family:monospace;padding:0.5rem;background:#111;border-radius:4px;margin-top:0.3rem;white-space:pre-wrap;font-size:0.65rem"></div>
+  <div style="margin-top:0.3rem;display:flex;gap:0.3rem">
+    <button onclick="exportSigLog()" style="font-size:0.7rem;padding:0.3rem 0.5rem;background:#8e44ad;color:white;border:none;border-radius:4px">📤 Export (copy)</button>
+    <button onclick="downloadSigLog()" style="font-size:0.7rem;padding:0.3rem 0.5rem;background:#2c3e50;color:white;border:none;border-radius:4px">💾 Download</button>
+    <button onclick="clearSigLog()" style="font-size:0.7rem;padding:0.3rem 0.5rem;background:#c0392b;color:white;border:none;border-radius:4px">🗑️ Clear</button>
+    <span id="sigLogCount" style="color:#666;align-self:center;margin-left:auto">0 entries</span>
+  </div>
+</details>
+
 <div id="updateBanner" class="notif-banner hidden" style="background:#27ae60">
   <span>🔄 Update available! Tap to install.</span>
   <button onclick="applyUpdate()">Update</button>
@@ -969,6 +986,92 @@ function dbg(msg) {
   el.textContent += `[${ts}] ${msg}\n`;
   el.scrollTop = el.scrollHeight;
 }
+
+// ── Signal Log (structured, exportable) ──
+const SIGLOG_LS_KEY = 'sitstand_siglog';
+let signalLog = [];
+
+function loadSigLog() {
+  try {
+    const raw = localStorage.getItem(SIGLOG_LS_KEY);
+    if (raw) signalLog = JSON.parse(raw);
+  } catch (e) { signalLog = []; }
+}
+function saveSigLog() {
+  // Keep max 2000 entries (about 24h of data at 30s polls)
+  if (signalLog.length > 2000) signalLog = signalLog.slice(-2000);
+  localStorage.setItem(SIGLOG_LS_KEY, JSON.stringify(signalLog));
+  const countEl = document.getElementById('sigLogCount');
+  if (countEl) countEl.textContent = signalLog.length + ' entries';
+}
+
+function sigLog(type, event, detail) {
+  const entry = {
+    t: Date.now(),
+    ts: new Date().toISOString(),
+    type: type,
+    event: event,
+    detail: detail || null,
+    appMode: state ? state.mode : null
+  };
+  signalLog.push(entry);
+  saveSigLog();
+  renderSigLog();
+}
+
+function renderSigLog() {
+  const el = document.getElementById('sigLogDisplay');
+  if (!el) return;
+  // Show last 30 entries
+  const recent = signalLog.slice(-30);
+  el.textContent = recent.map(e => {
+    const time = new Date(e.t).toLocaleTimeString();
+    const icon = e.type === 'manual' ? '👤' : e.type === 'poll' ? '📡' : e.type === 'detect' ? '🧠' : '•';
+    return `[${time}] ${icon} ${e.event}: ${e.detail || ''}`;
+  }).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+function exportSigLog() {
+  const text = JSON.stringify(signalLog, null, 2);
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      alert('Copied ' + signalLog.length + ' log entries to clipboard');
+    }).catch(() => fallbackCopy(text));
+  } else {
+    fallbackCopy(text);
+  }
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  alert('Copied ' + signalLog.length + ' entries');
+}
+
+function downloadSigLog() {
+  const text = JSON.stringify(signalLog, null, 2);
+  const blob = new Blob([text], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'sitstand-signals-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function clearSigLog() {
+  if (!confirm('Clear all signal log entries?')) return;
+  signalLog = [];
+  saveSigLog();
+  renderSigLog();
+}
+
+loadSigLog();
+renderSigLog();
 
 let state = {
   mode: 'sitting',
@@ -1494,6 +1597,8 @@ function toggleState() {
   state.mode = state.mode === 'sitting' ? 'standing' : 'sitting';
   state.switchedAt = now;
   state.log.push({ mode: state.mode, start: now });
+
+  sigLog('action', 'manual_switch', 'switched to ' + state.mode);
 
   save();
   render();
@@ -2293,9 +2398,14 @@ async function pollHealthConnect() {
         }
       }
       dbg(detail);
+      // Signal log: record poll result
+      const steppingDurLog = smartState.steppingSince ? Math.round((Date.now() - smartState.steppingSince) / 1000) : 0;
+      const inactiveDurLog = smartState.noStepsSince ? Math.round((Date.now() - smartState.noStepsSince) / 1000) : 0;
+      sigLog('poll', 'hc_steps', 'total=' + totalSteps + ' rec=' + records + ' walking=' + (steppingDurLog ? formatDur(steppingDurLog) : 'no') + ' inactive=' + (inactiveDurLog ? formatDur(inactiveDurLog) : 'no'));
       saveSmart();
     } else {
       dbg('HC poll: null result (plugin call failed?)');
+      sigLog('poll', 'hc_null', 'plugin returned null');
     }
 
     // Also read HR if available (bonus — from Fitbit sync)
@@ -2319,6 +2429,8 @@ async function pollHealthConnect() {
           document.getElementById('smartHrDisplay').classList.remove('hidden');
           updateHrBaseline(latest.bpm);
           updateSmartMetrics();
+          const delta = smartState.hrBaseline ? Math.round(latest.bpm - smartState.hrBaseline) : 0;
+          sigLog('poll', 'hc_hr', 'bpm=' + latest.bpm + ' baseline=' + (smartState.hrBaseline || '?') + ' delta=' + (delta >= 0 ? '+' : '') + delta + ' samples=' + samples.length);
         }
       }
     }
@@ -2569,7 +2681,11 @@ function runDetection() {
   const signals = getDetectionSignals();
   updateConfidenceIndicator(signals);
 
+  // Log every detection run
+  sigLog('detect', 'eval', 'mode=' + state.mode + ' detected=' + signals.detectedMode + ' conf=' + signals.confidence.toFixed(2) + ' reasons=[' + signals.reasons.join(', ') + ']');
+
   if (signals.detectedMode && signals.detectedMode !== state.mode && signals.confidence >= 0.6) {
+    sigLog('detect', 'suggest', 'suggesting switch to ' + signals.detectedMode + ' (conf=' + signals.confidence.toFixed(2) + ')');
     showSuggestion(signals);
   }
 }
@@ -2794,7 +2910,9 @@ function acceptSuggestion() {
     render();
     resetReminderTimer();
 
-    dbg('Accepted suggestion: switched to ' + state.mode + ', backdated by ' + Math.round((now - transitionTime) / 1000) + 's');
+    const backdatedBy = Math.round((now - transitionTime) / 1000);
+    dbg('Accepted suggestion: switched to ' + state.mode + ', backdated by ' + backdatedBy + 's');
+    sigLog('action', 'accept_suggest', 'switched to ' + state.mode + ' (backdated ' + backdatedBy + 's)');
   }
   suggestedMode = null;
   suggestedTransitionTime = null;
@@ -2803,6 +2921,7 @@ function acceptSuggestion() {
 function dismissSuggestion() {
   document.getElementById('suggestBanner').classList.add('hidden');
   suggestionActive = false;
+  sigLog('action', 'dismiss_suggest', 'dismissed suggestion for ' + suggestedMode);
   suggestedMode = null;
   suggestedTransitionTime = null;
 }
